@@ -1,0 +1,270 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600&display=swap');
+
+/* ── BASE ── */
+#root, .stApp, [data-testid="stAppViewContainer"] {
+    background-color: #050510 !important;
+}
+
+.stApp {
+    background-color: #050510 !important;
+    color: #c8d8e8 !important;
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* ── ANIMATIONS ── */
+@keyframes gridPulse {
+    0% { opacity: 0.3; }
+    100% { opacity: 0.8; }
+}
+@keyframes electricPulse {
+    0%, 100% { box-shadow: 0 0 5px #00F5FF44, 0 0 10px #00F5FF22; }
+    50% { box-shadow: 0 0 20px #00F5FF99, 0 0 40px #00F5FF44; }
+}
+@keyframes borderGlow {
+    0%, 100% { border-color: #00F5FF33; }
+    50% { border-color: #00F5FFaa; }
+}
+@keyframes pulseRing {
+    0% { transform: scale(0.8); opacity: 0.8; }
+    100% { transform: scale(2.5); opacity: 0; }
+}
+@keyframes scanDown {
+    0% { top: -10%; }
+    100% { top: 110%; }
+}
+@keyframes flowRight {
+    0% { left: -10%; }
+    100% { left: 110%; }
+}
+@keyframes sparkFlash {
+    0%, 89%, 100% { opacity: 0; transform: scale(0); }
+    90% { opacity: 1; transform: scale(1.5); }
+    95% { opacity: 0.3; transform: scale(0.8); }
+}
+@keyndef headerLine {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+}
+@keyframes headerLine {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+}
+@keyframes floatUp {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+@keyframes cardHoverPulse {
+    0%, 100% { box-shadow: 0 0 5px #00F5FF33; }
+    50% { box-shadow: 0 0 25px #00F5FFaa, 0 0 50px #00F5FF44; }
+}
+
+/* ── CIRCUIT GRID BACKGROUND ── */
+.stApp::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+        linear-gradient(#00F5FF09 1px, transparent 1px),
+        linear-gradient(90deg, #00F5FF09 1px, transparent 1px),
+        linear-gradient(#00F5FF04 1px, transparent 1px),
+        linear-gradient(90deg, #00F5FF04 1px, transparent 1px);
+    background-size: 80px 80px, 80px 80px, 16px 16px, 16px 16px;
+    animation: gridPulse 5s ease-in-out infinite alternate;
+}
+
+/* ── FLOWING ELECTRIC LINES (horizontal traces) ── */
+[data-testid="stAppViewContainer"]::before {
+    content: '';
+    position: fixed;
+    top: 25%;
+    left: -10%;
+    width: 30%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #00F5FF, #FFE600, transparent);
+    box-shadow: 0 0 6px #00F5FF, 0 0 12px #00F5FF66;
+    animation: flowRight 4s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+}
+
+[data-testid="stAppViewContainer"]::after {
+    content: '';
+    position: fixed;
+    top: 65%;
+    left: -10%;
+    width: 20%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #FFE600, #00F5FF, transparent);
+    box-shadow: 0 0 6px #FFE600, 0 0 12px #FFE60066;
+    animation: flowRight 6s linear infinite 2s;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ── VERTICAL SCAN LINE ── */
+section[data-testid="stSidebar"]::after {
+    content: '';
+    position: absolute;
+    top: -10%;
+    right: 0;
+    width: 2px;
+    height: 15%;
+    background: linear-gradient(180deg, transparent, #00F5FF, transparent);
+    box-shadow: 0 0 8px #00F5FF;
+    animation: scanDown 4s linear infinite;
+    pointer-events: none;
+    z-index: 999;
+}
+
+/* ── MAIN CONTENT ── */
+.main .block-container {
+    padding-top: 2rem !important;
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+/* ── TYPOGRAPHY ── */
+h1 {
+    font-family: 'Orbitron', monospace !important;
+    color: #00F5FF !important;
+    font-weight: 900 !important;
+    text-shadow: 0 0 20px #00F5FF88, 0 0 40px #00F5FF44 !important;
+    letter-spacing: 0.04em !important;
+    position: relative !important;
+}
+
+h1::after {
+    content: '';
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 4px;
+    background: linear-gradient(90deg, #00F5FF, #FFE600, #FF2D55, #00F5FF);
+    background-size: 300% auto;
+    animation: headerLine 3s linear infinite;
+    border-radius: 2px;
+    box-shadow: 0 0 8px #00F5FF88;
+}
+
+h2, h3 {
+    font-family: 'Orbitron', monospace !important;
+    color: #00F5FF !important;
+    font-weight: 700 !important;
+    text-shadow: 0 0 10px #00F5FF55 !important;
+    letter-spacing: 0.03em !important;
+}
+
+/* ── SIDEBAR ── */
+section[data-testid="stSidebar"] {
+    background-color: #030310 !important;
+    border-right: 1px solid #00F5FF22 !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+section[data-testid="stSidebar"] * {
+    color: #7a9ab8 !important;
+}
+
+section[data-testid="stSidebar"] strong {
+    color: #00F5FF !important;
+}
+
+section[data-testid="stSidebar"] h3 {
+    font-family: 'Orbitron', monospace !important;
+    color: #00F5FF !important;
+    font-size: 0.9rem !important;
+}
+
+/* ── METRIC CARDS ── */
+[data-testid="metric-container"] {
+    background: linear-gradient(135deg, #0A1628 0%, #050510 100%) !important;
+    border: 1px solid #00F5FF44 !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    position: relative !important;
+    overflow: hidden !important;
+    animation: borderGlow 3s ease-in-out infinite !important;
+    transition: all 0.3s ease !important;
+}
+
+[data-testid="metric-container"]:hover {
+    border-color: #00F5FFcc !important;
+    box-shadow: 0 0 25px #00F5FF55, 0 0 50px #00F5FF22 !important;
+    transform: translateY(-3px) !important;
+}
+
+[data-testid="metric-container"]::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 1px;
+    background: linear-gradient(90deg, transparent, #00F5FF, transparent);
+    animation: flowRight 3s linear infinite;
+}
+
+[data-testid="metric-container"] [data-testid="stMetricLabel"] * {
+    font-family: 'Orbitron', monospace !important;
+    color: #00F5FF88 !important;
+    font-size: 0.6rem !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+}
+
+[data-testid="metric-container"] [data-testid="stMetricValue"] * {
+    font-family: 'Orbitron', monospace !important;
+    color: #00F5FF !important;
+    font-size: 1.5rem !important;
+    text-shadow: 0 0 12px #00F5FF66 !important;
+}
+
+/* ── DATAFRAME ── */
+[data-testid="stDataFrame"] {
+    border: 1px solid #00F5FF22 !important;
+    border-radius: 8px !important;
+    background: #040412 !important;
+}
+
+/* ── SELECTBOX ── */
+[data-testid="stSelectbox"] > div > div {
+    background-color: #0A1628 !important;
+    border: 1px solid #00F5FF44 !important;
+    color: #c8d8e8 !important;
+    transition: all 0.2s ease !important;
+}
+
+[data-testid="stSelectbox"]:hover > div > div {
+    border-color: #00F5FF !important;
+    box-shadow: 0 0 12px #00F5FF44 !important;
+}
+
+/* ── SLIDER ── */
+[data-testid="stSlider"] [role="slider"] {
+    background: #00F5FF !important;
+    border: 2px solid white !important;
+    box-shadow: 0 0 15px #00F5FF, 0 0 30px #00F5FF88 !important;
+}
+
+/* ── DIVIDER ── */
+hr {
+    border: none !important;
+    height: 1px !important;
+    background: linear-gradient(90deg, transparent, #00F5FF44, #FFE60033, #00F5FF44, transparent) !important;
+    margin: 1.5rem 0 !important;
+}
+
+/* ── CAPTION ── */
+.stCaption, [data-testid="stCaptionContainer"] * {
+    color: #3a5a6a !important;
+    font-size: 0.75rem !important;
+    letter-spacing: 0.05em !important;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #050510; }
+::-webkit-scrollbar-thumb { background: #00F5FF33; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #00F5FF77; }
