@@ -119,20 +119,21 @@ def build_map(summary, title):
             showlegend=False
         ))
     fig.update_layout(
-        title=dict(text=title, font=dict(color="#00F5FF", size=16)),
+        title=dict(text=title, font=dict(color="#1A2332", size=16)),
         geo=dict(
     scope="usa",
+    projection=dict(type="albers usa"),
     center=dict(lat=42.8, lon=-75.5),
-    projection_scale=6,
+    projection_scale=12,
     showland=True,
-    landcolor="#141B2E",
+    landcolor="#EDEFF3",
     showsubunits=True,
-    subunitcolor="#1E2A42",
-    bgcolor="#0B1220"
+    subunitcolor="#C5CAD4",
+    bgcolor="#F7F8FA"
 ),
 height=500,
-paper_bgcolor="#0B1220",
-font=dict(color="#E8EBF0", family="IBM Plex Sans"),
+paper_bgcolor="#F7F8FA",
+font=dict(color="#1A2332", family="IBM Plex Sans"),
         margin=dict(l=0, r=0, t=40, b=0)
     )
     return fig
