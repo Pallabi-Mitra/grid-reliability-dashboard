@@ -55,8 +55,15 @@ st.markdown("---")
 # If secrets.toml is missing or doesn't have the key, show a clear
 # setup message instead of crashing.
 import os
-groq_key = st.secrets.get("GROQ_API_KEY", None) or os.environ.get("GROQ_API_KEY")
 
+
+try:
+    groq_key = st.secrets.get("GROQ_API_KEY", None)
+except FileNotFoundError:
+    groq_key = None
+
+if not groq_key:
+    groq_key = os.environ.get("GROQ_API_KEY")
 if not groq_key:
     st.warning(
         "No Groq API key found. Add `GROQ_API_KEY = \"your-key\"` to "
