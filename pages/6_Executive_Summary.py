@@ -54,7 +54,8 @@ st.markdown("---")
 # --- CHECK FOR API KEY IN SECRETS ---
 # If secrets.toml is missing or doesn't have the key, show a clear
 # setup message instead of crashing.
-groq_key = st.secrets.get("GROQ_API_KEY", None)
+import os
+groq_key = st.secrets.get("GROQ_API_KEY", None) or os.environ.get("GROQ_API_KEY")
 
 if not groq_key:
     st.warning(
