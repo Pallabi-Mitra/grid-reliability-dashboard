@@ -26,7 +26,7 @@ st.sidebar.markdown(
 
 # --- PAGE HEADER ---
 st.title("💡 Grid Reliability Dashboard")
-st.caption("Predicting generator risk before it becomes an outage")
+st.caption("Real-time risk visibility across New York's grid")
 st.markdown("---")
 
 # --- LIVE CONDITIONS WIDGET ---

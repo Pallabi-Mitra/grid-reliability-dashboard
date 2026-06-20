@@ -1,8 +1,8 @@
 # ============================================================
 # ENTRY POINT
-# Pages declared explicitly with st.Page so there's no dependency
-# on pages/ auto-detection. Default nav widget hidden via
-# position="hidden" so we render our own ordered sidebar.
+# Pages declared explicitly with st.Page. Default nav widget
+# hidden via position="hidden" so we render our own ordered
+# sidebar: identity header, then nav links, in chosen order.
 # ============================================================
 
 import streamlit as st
@@ -14,15 +14,14 @@ simulator = st.Page("pages/2_Scenario_Simulator.py", title="Scenario Simulator",
 zone_gen = st.Page("pages/3_Zone_Generators.py", title="Zone Generators", icon=":material/bolt:")
 risk_drivers = st.Page("pages/4_Risk_Drivers.py", title="Risk Drivers", icon=":material/troubleshoot:")
 analytics = st.Page("pages/5_Performance_Analytics.py", title="Performance Analytics", icon=":material/bar_chart:")
+exec_summary = st.Page("pages/6_Executive_Summary.py", title="Executive Summary", icon=":material/summarize:")
 
-# position="hidden" disables Streamlit's auto-rendered nav widget entirely,
-# so we control sidebar order and content ourselves below.
 nav = st.navigation(
-    [overview, simulator, zone_gen, risk_drivers, analytics],
+    [overview, simulator, zone_gen, risk_drivers, exec_summary, analytics],
     position="hidden"
 )
 
-# --- SIDEBAR: IDENTITY HEADER (renders first, since nav widget is hidden) ---
+# --- SIDEBAR: IDENTITY HEADER ---
 st.sidebar.markdown("""
 <div class="sidebar-header">
     <div class="sidebar-icon">⚡</div>
@@ -30,11 +29,13 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR: CUSTOM NAV LINKS, in our chosen order ---
+# --- SIDEBAR: CUSTOM NAV LINKS, in chosen order ---
 st.sidebar.page_link(overview, label="Overview", icon=":material/dashboard:")
 st.sidebar.page_link(simulator, label="Scenario Simulator", icon=":material/thermostat:")
 st.sidebar.page_link(zone_gen, label="Zone Generators", icon=":material/bolt:")
 st.sidebar.page_link(risk_drivers, label="Risk Drivers", icon=":material/troubleshoot:")
+
 st.sidebar.page_link(analytics, label="Performance Analytics", icon=":material/bar_chart:")
+st.sidebar.page_link(exec_summary, label="Executive Summary", icon=":material/summarize:")
 
 nav.run()
