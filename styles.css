@@ -1,161 +1,167 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap');
+/* ============================================================
+   GRID RELIABILITY DASHBOARD — DESIGN SYSTEM
+   Internal enterprise tool. Design goal: clarity under pressure.
+   Risk states (RED/YELLOW/GREEN) stay instantly legible, everything
+   else stays quiet. One consistent card style used everywhere.
+   ============================================================ */
+/* ============================================================
+   STREAMLIT CHROME OVERRIDES (corrected selectors)
+   ============================================================ */
 
-#root, .stApp, [data-testid="stAppViewContainer"] {
-    background-color: #F7F8FA !important;
+header[data-testid="stHeader"] {
+    display: none;
 }
 
 .stApp {
-    background-color: #F7F8FA !important;
-    color: #1A2332 !important;
-    font-family: 'Inter', sans-serif !important;
+    background-color: #F7F8FA;
 }
 
-.main .block-container {
+/* Correct current selector for main content padding, replaces
+   the old .block-container which wasn't reliably matching. */
+.stMainBlockContainer {
     padding-top: 1.5rem !important;
-    padding-bottom: 2rem !important;
-    max-width: 1400px !important;
+    padding-left: 3rem;
+    padding-right: 3rem;
+    max-width: 100%;
 }
 
-h1 {
-    font-family: 'IBM Plex Sans', sans-serif !important;
-    color: #1A2332 !important;
-    font-weight: 600 !important;
-    font-size: 1.5rem !important;
-    letter-spacing: -0.01em !important;
-    border-bottom: 1px solid #E2E5EB !important;
-    padding-bottom: 12px !important;
+[data-testid="stSidebar"] {
+    border-right: 1px solid #E2E5EB;
+    background-color: #FFFFFF;
 }
 
-h2, h3 {
-    font-family: 'IBM Plex Sans', sans-serif !important;
-    color: #1A2332 !important;
-    font-weight: 600 !important;
-    font-size: 1.05rem !important;
-    letter-spacing: -0.005em !important;
+/* The actual scrollable content wrapper inside the sidebar.
+   Using flex here, instead of the old > div:first-child guess,
+   so the footer can be reliably pushed to the bottom. */
+[data-testid="stSidebarUserContent"] {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 2rem);
+    padding-top: 0.5rem;
 }
 
-section[data-testid="stSidebar"] {
-    background-color: #FFFFFF !important;
-    border-right: 1px solid #E2E5EB !important;
+/* --- SIDEBAR HEADER & SPACING --- */
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0.25rem 0 1.25rem 0;
 }
 
-section[data-testid="stSidebar"] * {
-    color: #5C6678 !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.85rem !important;
+.sidebar-icon {
+    width: 32px;
+    height: 32px;
+    background-color: #1A2332;
+    color: #FFFFFF;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
 }
 
-section[data-testid="stSidebar"] strong {
-    color: #1A2332 !important;
-    font-weight: 500 !important;
+.sidebar-title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: #1A2332;
 }
 
-section[data-testid="stSidebar"] h3 {
-    font-family: 'IBM Plex Sans', sans-serif !important;
-    color: #1A2332 !important;
-    font-size: 0.95rem !important;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600 !important;
+.sidebar-footer {
+    margin-top: auto;
+    padding: 1rem 0 0.5rem 0;
+    font-size: 0.75rem;
+    color: #94A3B8;
+    border-top: 1px solid #E2E5EB;
+}
+/* --- TYPOGRAPHY --- */
+html, body, [class*="css"] {
+    font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+    color: #1A2332;
 }
 
-[data-testid="metric-container"] {
-    background-color: #FFFFFF !important;
-    border: 1px solid #E2E5EB !important;
-    border-radius: 6px !important;
-    padding: 14px 16px !important;
-    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06) !important;
+h1, h2, h3, h4 {
+    color: #1A2332;
+    font-weight: 600;
 }
 
-[data-testid="metric-container"] [data-testid="stMetricLabel"] * {
-    font-family: 'Inter', sans-serif !important;
-    color: #6B7588 !important;
-    font-size: 0.7rem !important;
-    letter-spacing: 0.06em !important;
-    text-transform: uppercase !important;
-    font-weight: 500 !important;
+[data-testid="stMetricValue"] {
+    font-family: 'IBM Plex Mono', monospace;
+    color: #1A2332;
+    font-weight: 600;
 }
 
-[data-testid="metric-container"] [data-testid="stMetricValue"] * {
-    font-family: 'IBM Plex Mono', monospace !important;
-    color: #1A2332 !important;
-    font-size: 1.4rem !important;
-    font-weight: 500 !important;
+[data-testid="stMetricLabel"] {
+    color: #64748B;
+    font-size: 0.85rem;
 }
 
-[data-testid="metric-container"] [data-testid="stMetricDelta"] * {
-    font-family: 'IBM Plex Mono', monospace !important;
-    font-size: 0.8rem !important;
-}
-
-[data-testid="stDataFrame"] {
-    border: 1px solid #E2E5EB !important;
-    border-radius: 6px !important;
-    background-color: #FFFFFF !important;
-    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06) !important;
-}
-
-[data-testid="stDataFrame"] * {
-    font-family: 'IBM Plex Mono', monospace !important;
-    font-size: 0.82rem !important;
-}
-
-[data-testid="stSelectbox"] > div > div {
-    background-color: #FFFFFF !important;
-    border: 1px solid #D5D9E0 !important;
-    border-radius: 6px !important;
-    color: #1A2332 !important;
-    font-family: 'Inter', sans-serif !important;
-}
-
-[data-testid="stSelectbox"]:hover > div > div {
-    border-color: #3B82F6 !important;
-}
-
-[data-testid="stSlider"] [role="slider"] {
-    background: #3B82F6 !important;
-    border: 2px solid #FFFFFF !important;
-    box-shadow: 0 1px 3px rgba(16, 24, 40, 0.15) !important;
-}
-
-[data-testid="stSlider"] > div > div > div > div {
-    background: #3B82F6 !important;
+[data-testid="stCaptionContainer"] {
+    color: #64748B;
 }
 
 hr {
-    border: none !important;
-    height: 1px !important;
-    background-color: #E2E5EB !important;
-    margin: 1.25rem 0 !important;
+    border-color: #E2E5EB;
 }
 
-.stCaption, [data-testid="stCaptionContainer"] * {
-    color: #8B95A8 !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.78rem !important;
+/* ============================================================
+   CARD SYSTEM
+   Used for: Live Conditions widget, agent output cards (Executive
+   Summary page), SHAP explanation card (Risk Drivers page).
+   ============================================================ */
+
+.app-card {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E5EB;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 10px 0;
+    box-shadow: 0 1px 3px rgba(26, 35, 50, 0.06);
 }
 
-.stButton button {
-    background-color: #FFFFFF !important;
-    border: 1px solid #D5D9E0 !important;
-    color: #1A2332 !important;
-    border-radius: 6px !important;
-    font-family: 'Inter', sans-serif !important;
-    font-weight: 500 !important;
+.app-card-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin: 0 0 8px 0;
 }
 
-.stButton button:hover {
-    border-color: #3B82F6 !important;
-    background-color: #F0F5FF !important;
+.app-card-label.monitor { color: #3B82F6; }
+.app-card-label.diagnosis { color: #D97706; }
+.app-card-label.reporter { color: #DC2626; }
+
+.app-card-body {
+    color: #1A2332;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin: 0;
 }
 
-[data-testid="stTextInput"] > div > div {
-    background-color: #FFFFFF !important;
-    border: 1px solid #D5D9E0 !important;
-    border-radius: 6px !important;
+.app-card-meta {
+    color: #64748B;
+    font-size: 0.85rem;
+    margin: 0 0 12px 0;
 }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #F7F8FA; }
-::-webkit-scrollbar-thumb { background: #D5D9E0; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3B82F6; }
+.app-card-meta strong {
+    color: #1A2332;
+    font-weight: 600;
+}
+
+.app-card-driver-label {
+    color: #64748B;
+    font-size: 0.8rem;
+    font-style: italic;
+    margin: 0 0 8px 0;
+}
+
+.app-card-driver-line {
+    color: #1A2332;
+    font-size: 0.85rem;
+    margin: 4px 0;
+}
+
+.risk-badge-high { color: #DC2626; font-weight: 600; }
+.risk-badge-moderate { color: #D97706; font-weight: 600; }
+.risk-badge-low { color: #16A34A; font-weight: 600; }
