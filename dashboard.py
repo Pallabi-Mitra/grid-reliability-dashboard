@@ -15,62 +15,7 @@ def load_css(filepath):
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 load_css("styles.css")
-st.markdown("""
-<style>
-@keyframes sparkFlash {
-    0%, 85%, 100% { opacity: 0; transform: scale(0); }
-    88% { opacity: 1; transform: scale(2); }
-    93% { opacity: 0.5; transform: scale(1.2); }
-    96% { opacity: 0; transform: scale(0.5); }
-}
-@keyframes flowRight {
-    0% { left: -15%; opacity: 0; }
-    10% { opacity: 1; }
-    90% { opacity: 1; }
-    100% { left: 110%; opacity: 0; }
-}
-@keyframes floatBulb {
-    0%, 100% { transform: translateY(0px); filter: drop-shadow(0 0 8px #FFE600aa); }
-    50% { transform: translateY(-10px); filter: drop-shadow(0 0 25px #FFE600) drop-shadow(0 0 50px #FFE60055); }
-}
-</style>
-""", unsafe_allow_html=True)
-st.markdown("""
-<div style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden;">
-    <!-- Circuit node sparks -->
-    <div style="position:absolute;top:20%;left:15%;width:6px;height:6px;background:#00F5FF;border-radius:50%;
-        box-shadow:0 0 10px #00F5FF,0 0 20px #00F5FF;
-        animation:sparkFlash 3s infinite 0s;"></div>
-    <div style="position:absolute;top:45%;left:72%;width:4px;height:4px;background:#FFE600;border-radius:50%;
-        box-shadow:0 0 8px #FFE600,0 0 16px #FFE600;
-        animation:sparkFlash 4s infinite 1s;"></div>
-    <div style="position:absolute;top:70%;left:30%;width:5px;height:5px;background:#00F5FF;border-radius:50%;
-        box-shadow:0 0 10px #00F5FF,0 0 20px #00F5FF;
-        animation:sparkFlash 2.5s infinite 0.5s;"></div>
-    <div style="position:absolute;top:30%;left:85%;width:4px;height:4px;background:#FF2D55;border-radius:50%;
-        box-shadow:0 0 8px #FF2D55,0 0 16px #FF2D55;
-        animation:sparkFlash 3.5s infinite 2s;"></div>
-    <div style="position:absolute;top:80%;left:60%;width:6px;height:6px;background:#FFE600;border-radius:50%;
-        box-shadow:0 0 10px #FFE600,0 0 20px #FFE600;
-        animation:sparkFlash 4.5s infinite 1.5s;"></div>
-    <div style="position:absolute;top:10%;left:50%;width:4px;height:4px;background:#00F5FF;border-radius:50%;
-        box-shadow:0 0 8px #00F5FF,0 0 16px #00F5FF;
-        animation:sparkFlash 3s infinite 3s;"></div>
-    <div style="position:absolute;top:55%;left:8%;width:5px;height:5px;background:#FF2D55;border-radius:50%;
-        box-shadow:0 0 10px #FF2D55,0 0 20px #FF2D55;
-        animation:sparkFlash 2s infinite 0.8s;"></div>
-    <div style="position:absolute;top:15%;left:92%;width:4px;height:4px;background:#00F5FF;border-radius:50%;
-        box-shadow:0 0 8px #00F5FF,0 0 16px #00F5FF;
-        animation:sparkFlash 5s infinite 2.5s;"></div>
-    <!-- Circuit traces -->
-    <div style="position:absolute;top:20%;left:0;width:15%;height:1px;background:linear-gradient(90deg,transparent,#00F5FF,transparent);
-        box-shadow:0 0 4px #00F5FF;animation:flowRight 5s linear infinite;"></div>
-    <div style="position:absolute;top:65%;left:0;width:10%;height:1px;background:linear-gradient(90deg,transparent,#FFE600,transparent);
-        box-shadow:0 0 4px #FFE600;animation:flowRight 7s linear infinite 2s;"></div>
-    <div style="position:absolute;top:40%;left:0;width:12%;height:1px;background:linear-gradient(90deg,transparent,#FF2D55,transparent);
-        box-shadow:0 0 4px #FF2D55;animation:flowRight 6s linear infinite 1s;"></div>
-</div>
-""", unsafe_allow_html=True)
+
 
 @st.cache_data
 def load_data():
@@ -131,7 +76,7 @@ def get_risk_color(pct):
     else: return "🟢 GREEN"
 
 zone_summary["risk_level"] = zone_summary["risk_pct"].apply(get_risk_color)
-color_map = {"🔴 RED": "#E74C3C", "🟡 YELLOW": "#F1C40F", "🟢 GREEN": "#2ECC71"}
+color_map = {"🔴 RED": "#DC2626", "🟡 YELLOW": "#D97706", "🟢 GREEN": "#16A34A"}
 
 zone_coords = {
     "A": (42.9, -78.9), "B": (43.15, -77.6), "C": (43.05, -76.15),
@@ -176,18 +121,18 @@ def build_map(summary, title):
     fig.update_layout(
         title=dict(text=title, font=dict(color="#00F5FF", size=16)),
         geo=dict(
-            scope="usa",
-            center=dict(lat=42.8, lon=-75.5),
-            projection_scale=6,
-            showland=True,
-            landcolor="#0A1628",
-            showsubunits=True,
-            subunitcolor="#1a3a4a",
-            bgcolor="#050510"
-        ),
-        height=500,
-        paper_bgcolor="#050510",
-        font=dict(color="white"),
+    scope="usa",
+    center=dict(lat=42.8, lon=-75.5),
+    projection_scale=6,
+    showland=True,
+    landcolor="#141B2E",
+    showsubunits=True,
+    subunitcolor="#1E2A42",
+    bgcolor="#0B1220"
+),
+height=500,
+paper_bgcolor="#0B1220",
+font=dict(color="#E8EBF0", family="IBM Plex Sans"),
         margin=dict(l=0, r=0, t=40, b=0)
     )
     return fig
