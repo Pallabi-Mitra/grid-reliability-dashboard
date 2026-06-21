@@ -8,6 +8,7 @@
 # context instead of letting it guess from general knowledge.
 # ============================================================
 
+import streamlit as st
 import chromadb
 from chromadb.utils import embedding_functions
 
@@ -84,17 +85,19 @@ RUNBOOK_ENTRIES = [
 ]
 
 
+@st.cache_resource
 def get_runbook_collection():
     """
-    Builds (or returns, if already built this session) an in-memory
-    ChromaDB collection of the runbook entries, embedded via a local
-    sentence-transformers model. In-memory client means no separate
-    database file or service, fine for this demo's scale (10 entries).
+    Builds the ChromaDB collection ONCE per app process and caches it
+    via st.cache_resource, so the embedding model is loaded a single
+    time, not reloaded on every agent pipeline run. This was the
+    actual cause of the slowness and Render crashes, every click was
+    reloading sentence-transformers from scratch.
     """
-    client = chromadb.EphemeralClient()  # in-memory, resets each session
+    client = chromadb.EphemeralClient()
 
     embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"  # small, fast, well-suited for short text
+        model_name="all-MiniLM-L6-v2"
     )
 
     collection = client.get_or_create_collection(
@@ -102,7 +105,6 @@ def get_runbook_collection():
         embedding_function=embedding_fn
     )
 
-    # Only populate if empty (avoids re-embedding on every call within a session)
     if collection.count() == 0:
         collection.add(
             ids=[entry["id"] for entry in RUNBOOK_ENTRIES],
@@ -114,10 +116,8 @@ def get_runbook_collection():
 
 def retrieve_relevant_knowledge(query_text, n_results=2):
     """
-    Queries the runbook collection with query_text (typically built
-    from SHAP findings + fuel type) and returns the top n_results
-    most relevant entries as a single formatted string, ready to
-    drop into an LLM prompt.
+    Queries the cached runbook collection with query_text and returns
+    the top n_results most relevant entries as a formatted string.
     """
     collection = get_runbook_collection()
     results = collection.query(query_texts=[query_text], n_results=n_results)
