@@ -7,12 +7,16 @@
 #   YELLOW -> Monitor + Diagnosis, stop (not urgent enough to report)
 #   RED    -> Monitor + Diagnosis + Reporter (full escalation)
 #
-# Groq API key is read from .streamlit/secrets.toml, never typed
-# or hardcoded, so it can't accidentally end up in git history.
+# Groq API key is read from a plain OS environment variable.
+# Locally: set GROQ_API_KEY in Windows environment variables.
+# On Render: set GROQ_API_KEY in the service's Environment tab.
+# No st.secrets / secrets.toml dependency at all, removes that
+# entire failure category.
 # ============================================================
 
 import streamlit as st
 import pandas as pd
+import os
 from shared import (
     load_css, get_latest_predictions, zone_names, categorical_cols
 )
@@ -35,8 +39,6 @@ st.caption("Multi-agent analysis: Monitor, Diagnosis, and Reporter agents, with 
 st.markdown("---")
 
 # --- ZONE SELECTOR ---
-# Defaults to whatever zone was last selected on Zone Generators or
-# Risk Drivers, via st.session_state, same pattern used there.
 zone_options = sorted(zone_summary["operating_region"].tolist())
 default_zone = st.session_state.get("selected_zone", zone_options[0])
 default_index = zone_options.index(default_zone) if default_zone in zone_options else 0
@@ -51,30 +53,16 @@ st.session_state["selected_zone"] = selected_zone
 
 st.markdown("---")
 
-# --- CHECK FOR API KEY IN SECRETS ---
-# If secrets.toml is missing or doesn't have the key, show a clear
-# setup message instead of crashing.
-import os
+# --- CHECK FOR API KEY ---
+groq_key = os.environ.get("GROQ_API_KEY")
 
-
-try:
-    groq_key = st.secrets.get("GROQ_API_KEY", None)
-except FileNotFoundError:
-    groq_key = None
-
-if not groq_key:
-    groq_key = os.environ.get("GROQ_API_KEY")
 if not groq_key:
     st.warning(
-        "No Groq API key found. Add `GROQ_API_KEY = \"your-key\"` to "
-        "`.streamlit/secrets.toml` to enable the agent pipeline."
+        "No Groq API key found. Set GROQ_API_KEY as an environment variable "
+        "(locally in Windows env vars, or in Render's Environment tab)."
     )
 else:
     if st.button("⚡ Run Agent Pipeline for Zone " + selected_zone):
-        st.write("Starting Agent pipeline...")
-        import os
-        os.environ["GROQ_API_KEY"] = groq_key
-
         from langchain_groq import ChatGroq
         from langgraph.graph import StateGraph, END
         from langgraph.graph.message import add_messages
@@ -82,9 +70,8 @@ else:
         import shap
         from knowledge_base import retrieve_relevant_knowledge
 
-        llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+        llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=groq_key)
 
-        # --- STATE SCHEMA ---
         class ReliabilityState(TypedDict):
             messages: Annotated[list, add_messages]
             zone: str
@@ -94,7 +81,6 @@ else:
             diagnosis: str
             brief: str
 
-        # --- AGENT NODES ---
         def monitor_agent(state):
             zone = state["zone"]
             zone_data = zone_summary[zone_summary["operating_region"] == zone].iloc[0]
@@ -131,10 +117,6 @@ else:
             shap_series = pd.Series(shap_vals[0], index=model_features).abs().sort_values(ascending=False)
             feature_str = ", ".join([f"{k.replace('_',' ')} ({v:.3f})" for k, v in shap_series.head(5).items()])
 
-        # --- RAG RETRIEVAL ---
-        # Build a query from the asset's fuel type + top SHAP drivers, so
-        # retrieval surfaces runbook entries relevant to THIS specific
-        # generator's risk profile, not just generic grid knowledge.
             rag_query = f"{top_asset['fuel_category']} generator risk factors: {feature_str}"
             retrieved_knowledge = retrieve_relevant_knowledge(rag_query, n_results=2)
 
@@ -148,7 +130,6 @@ else:
                 f"root cause in 2-3 sentences. Ground your explanation in the retrieved guidance "
                 f"where it applies, rather than general assumptions."
             )
-            
             return {"messages": [response], "diagnosis": response.content}
 
         def reporter_agent(state):
@@ -162,7 +143,6 @@ else:
             )
             return {"messages": [response], "brief": response.content}
 
-        # --- ROUTING FUNCTIONS ---
         def route_after_monitor(state):
             risk_level = state["risk_level"]
             if "GREEN" in risk_level:
@@ -178,7 +158,6 @@ else:
             else:
                 return "stop"
 
-        # --- BUILD GRAPH ---
         graph = StateGraph(ReliabilityState)
         graph.add_node("monitor", monitor_agent)
         graph.add_node("diagnosis", diagnosis_agent)
@@ -197,7 +176,6 @@ else:
 
         pipeline = graph.compile()
 
-        # --- RUN PIPELINE ---
         zone_risk_level = zone_summary[zone_summary["operating_region"] == selected_zone]["risk_level"].values[0]
 
         with st.spinner("Running agent pipeline..."):
@@ -208,13 +186,11 @@ else:
                 "diagnosis": "", "brief": ""
             })
 
-        # --- EXTRACT RESULTS SAFELY ---
         messages = result["messages"]
         monitor_out = messages[0].content if len(messages) > 0 else None
         diagnosis_out = messages[1].content if len(messages) > 1 else None
         brief_out = messages[2].content if len(messages) > 2 else None
 
-        # --- DISPLAY: which path was taken ---
         if "GREEN" in zone_risk_level:
             st.info("🟢 Zone is GREEN. Monitor ran, no further investigation needed. Pipeline stopped here.")
         elif "YELLOW" in zone_risk_level:
@@ -222,7 +198,6 @@ else:
         else:
             st.info("🔴 Zone is RED. Full pipeline ran: Monitor + Diagnosis + Reporter.")
 
-        # --- DISPLAY: Monitor output ---
         if monitor_out:
             st.markdown(f"""
             <div class="app-card">
@@ -231,7 +206,6 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
-        # --- DISPLAY: Diagnosis output ---
         if diagnosis_out:
             st.markdown(f"""
             <div class="app-card">
@@ -240,7 +214,6 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
-        # --- DISPLAY: Reporter output + approval ---
         if brief_out:
             st.markdown(f"""
             <div class="app-card">
