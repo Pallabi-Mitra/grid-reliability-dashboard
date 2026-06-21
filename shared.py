@@ -154,15 +154,8 @@ def build_map(summary, title):
 # ------------------------------------------------------------
 NWS_USER_AGENT = "GridReliabilityDashboard, student-project@example.com"
 
-@st.cache_data(ttl=600)  # cache 10 minutes, NWS doesn't update faster than that
+@st.cache_data(ttl=600)
 def get_live_weather(lat, lon, location_label):
-    """
-    Two-step NWS API call:
-    1. /points/{lat},{lon} -> resolves to a forecast URL for that location
-    2. forecast URL -> actual current/near-term conditions
-    Returns None on any failure so the page can show a quiet fallback
-    instead of crashing if NWS is down or unreachable.
-    """
     headers = {"User-Agent": NWS_USER_AGENT}
     try:
         points_resp = requests.get(
@@ -185,21 +178,10 @@ def get_live_weather(lat, lon, location_label):
         }
     except Exception:
         return None
-    
 
-    # ------------------------------------------------------------
-# LIVE WEATHER FOR ALL ZONES
-# Loops get_live_weather() across all 11 zone coordinates.
-# Cached together so all 11 calls happen once, not on every rerun.
-# ------------------------------------------------------------
+
 @st.cache_data(ttl=600)
 def get_all_zone_weather():
-    """
-    Fetches live weather for every zone's representative city.
-    Returns a list of dicts, one per zone, or a partial list if
-    some zones fail (network issues), so one bad zone doesn't
-    break the whole table.
-    """
     results = []
     for zone, (lat, lon) in zone_coords.items():
         label = f"Zone {zone} ({zone_names.get(zone, '')})"
@@ -210,18 +192,8 @@ def get_all_zone_weather():
     return results
 
 
-# ------------------------------------------------------------
-# NOAA WEATHER ALERTS (statewide, New York)
-# Separate endpoint from forecasts: returns active warnings,
-# watches, and advisories for a given state.
-# ------------------------------------------------------------
-@st.cache_data(ttl=300)  # alerts can change faster, shorter cache
+@st.cache_data(ttl=300)
 def get_ny_weather_alerts():
-    """
-    Fetches active NOAA weather alerts for New York state.
-    Returns a list of alert dicts (event type, area, headline),
-    or an empty list if there are none or the request fails.
-    """
     headers = {"User-Agent": NWS_USER_AGENT}
     try:
         resp = requests.get(
@@ -243,22 +215,12 @@ def get_ny_weather_alerts():
     except Exception:
         return []
 
-        # ------------------------------------------------------------
-# LIVE NY ELECTRICITY DEMAND (EIA, real, public, statewide)
-# Separate from the synthetic per-generator predictions. Shown as
-# ambient real-world context, same honest framing as live weather.
-# ------------------------------------------------------------
-@st.cache_data(ttl=900)  # demand data updates hourly, 15 min cache is plenty
+
+@st.cache_data(ttl=900)
 def get_ny_live_demand():
-    """
-    Fetches the most recent hourly electricity demand for NYISO
-    from EIA's public API. Returns a dict with the value and
-    timestamp, or None if the request fails or no key is set.
-    """
     api_key = os.environ.get("EIA_API_KEY")
     if not api_key:
         return None
-
     try:
         url = (
             "https://api.eia.gov/v2/electricity/rto/region-data/data/"
@@ -283,4 +245,3 @@ def get_ny_live_demand():
         }
     except Exception:
         return None
-    
