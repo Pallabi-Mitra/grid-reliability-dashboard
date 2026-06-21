@@ -38,8 +38,8 @@ zone_summary["risk_pct"] = (
 zone_summary["risk_level"] = zone_summary["risk_pct"].apply(
     lambda x: "RED" if x > 65 else ("YELLOW" if x > 45 else "GREEN")
 )
-
-print(f"Model loaded. Latest date: {latest_date}. Zones computed.")
+import sys
+print(f"Model loaded. Latest date: {latest_date}. Zones computed.", file=sys.stderr)
 
 # ── MCP Server ──
 mcp = FastMCP("Grid Reliability MCP Server")

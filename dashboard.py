@@ -14,10 +14,10 @@ simulator = st.Page("pages/2_Scenario_Simulator.py", title="Scenario Simulator",
 zone_gen = st.Page("pages/3_Zone_Generators.py", title="Zone Generators", icon=":material/bolt:")
 risk_drivers = st.Page("pages/4_Risk_Drivers.py", title="Risk Drivers", icon=":material/troubleshoot:")
 analytics = st.Page("pages/5_Performance_Analytics.py", title="Performance Analytics", icon=":material/bar_chart:")
-exec_summary = st.Page("pages/6_Executive_Summary.py", title="Executive Summary", icon=":material/summarize:")
+agent_ops = st.Page("pages/6_Agent_Operations.py", title="Agent Operations", icon=":material/smart_toy:")
 
 nav = st.navigation(
-    [overview, simulator, zone_gen, risk_drivers, exec_summary, analytics],
+    [overview, simulator, zone_gen, risk_drivers, agent_ops, analytics],
     position="hidden"
 )
 
@@ -36,6 +36,6 @@ st.sidebar.page_link(zone_gen, label="Zone Generators", icon=":material/bolt:")
 st.sidebar.page_link(risk_drivers, label="Risk Drivers", icon=":material/troubleshoot:")
 
 st.sidebar.page_link(analytics, label="Performance Analytics", icon=":material/bar_chart:")
-st.sidebar.page_link(exec_summary, label="Executive Summary", icon=":material/summarize:")
+st.sidebar.page_link(agent_ops, label="Agent Operations", icon=":material/smart_toy:")
 
 nav.run()
