@@ -8,15 +8,15 @@
 #   RED    -> Monitor + Diagnosis + Reporter (full escalation)
 #
 # Groq API key is read from a plain OS environment variable.
-# Locally: set GROQ_API_KEY in Windows environment variables.
-# On Render: set GROQ_API_KEY in the service's Environment tab.
-# No st.secrets / secrets.toml dependency at all, removes that
-# entire failure category.
+# SHAP TreeExplainer is cached so it's built once per app session,
+# not rebuilt on every Diagnosis agent call (this was the real
+# cause of the 30+ second delay).
 # ============================================================
 
 import streamlit as st
 import pandas as pd
 import os
+import shap
 from shared import (
     load_css, get_latest_predictions, zone_names, categorical_cols
 )
@@ -26,6 +26,16 @@ load_css("styles.css")
 
 # --- LOAD DATA / MODEL / PREDICTIONS ---
 assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_latest_predictions()
+
+
+# --- CACHED SHAP EXPLAINER ---
+# Building a TreeExplainer is expensive; computing shap_values for a
+# single row is fast. Caching this means it's built ONCE per app
+# session instead of on every single Diagnosis agent call.
+@st.cache_resource
+def get_shap_explainer(_model):
+    return shap.TreeExplainer(_model)
+
 
 # --- SIDEBAR: FOOTER ---
 st.sidebar.markdown(
@@ -67,7 +77,6 @@ else:
         from langgraph.graph import StateGraph, END
         from langgraph.graph.message import add_messages
         from typing import TypedDict, Annotated
-        import shap
         from knowledge_base import retrieve_relevant_knowledge
 
         llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=groq_key)
@@ -112,7 +121,8 @@ else:
             for col in model_features:
                 if col not in asset_enc.columns:
                     asset_enc[col] = 0
-            explainer = shap.TreeExplainer(model)
+
+            explainer = get_shap_explainer(model)
             shap_vals = explainer.shap_values(asset_enc[model_features])
             shap_series = pd.Series(shap_vals[0], index=model_features).abs().sort_values(ascending=False)
             feature_str = ", ".join([f"{k.replace('_',' ')} ({v:.3f})" for k, v in shap_series.head(5).items()])

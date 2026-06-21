@@ -1,16 +1,21 @@
 # ============================================================
 # KNOWLEDGE BASE / RAG LAYER
-# Stores operational runbook entries in ChromaDB, embedded locally
-# via sentence-transformers (no external embedding API needed).
-# The Diagnosis agent queries this with SHAP findings to retrieve
-# the most relevant domain knowledge before generating its
-# root-cause explanation, grounding the LLM in real operational
-# context instead of letting it guess from general knowledge.
+# Stores operational runbook entries and retrieves the most
+# relevant ones for a given query before the Diagnosis agent
+# generates its explanation. Retrieval is built behind a swappable
+# interface (Retriever base class) so the embedding method is an
+# implementation detail, not a fixed dependency. Today's corpus
+# is 10 documents, so a lightweight TF-IDF retriever is the right
+# sized choice: no heavy model download, no memory risk, same
+# retrieve-then-ground mechanism as any RAG system. If the corpus
+# grew to thousands of entries, a DenseEmbeddingRetriever could be
+# swapped in here without touching the agent code at all.
 # ============================================================
 
 import streamlit as st
-import chromadb
-from chromadb.utils import embedding_functions
+from abc import ABC, abstractmethod
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 RUNBOOK_ENTRIES = [
     {
@@ -85,44 +90,59 @@ RUNBOOK_ENTRIES = [
 ]
 
 
+# ============================================================
+# RETRIEVER INTERFACE
+# Any retriever implementation must support retrieve(query, n_results)
+# and return a list of document text strings, ranked most relevant first.
+# ============================================================
+class Retriever(ABC):
+    @abstractmethod
+    def retrieve(self, query: str, n_results: int = 2) -> list[str]:
+        ...
+
+
+# ============================================================
+# TF-IDF RETRIEVER
+# Sparse, statistical retrieval: documents and the query are turned
+# into word-frequency vectors, ranked by cosine similarity. No model
+# download, no GPU/torch dependency, near-zero memory footprint.
+# Well-suited to small, distinct-vocabulary corpora like this one.
+# ============================================================
+class TFIDFRetriever(Retriever):
+    def __init__(self, documents: list[dict]):
+        self.documents = documents
+        self.vectorizer = TfidfVectorizer(stop_words="english")
+        texts = [doc["text"] for doc in documents]
+        self.doc_matrix = self.vectorizer.fit_transform(texts)
+
+    def retrieve(self, query: str, n_results: int = 2) -> list[str]:
+        query_vec = self.vectorizer.transform([query])
+        similarities = cosine_similarity(query_vec, self.doc_matrix)[0]
+        top_indices = similarities.argsort()[::-1][:n_results]
+        return [self.documents[i]["text"] for i in top_indices]
+
+
+# ============================================================
+# RETRIEVER FACTORY (cached)
+# Builds the retriever once per app session. Swapping retrieval
+# strategy later means changing this one line, nothing in the
+# agent code needs to change since both implement the same interface.
+# ============================================================
 @st.cache_resource
-def get_runbook_collection():
+def get_retriever() -> Retriever:
+    return TFIDFRetriever(RUNBOOK_ENTRIES)
+
+
+def retrieve_relevant_knowledge(query_text: str, n_results: int = 2) -> str:
     """
-    Builds the ChromaDB collection ONCE per app process and caches it
-    via st.cache_resource, so the embedding model is loaded a single
-    time, not reloaded on every agent pipeline run. This was the
-    actual cause of the slowness and Render crashes, every click was
-    reloading sentence-transformers from scratch.
+    Queries the active retriever and returns the top n_results most
+    relevant runbook entries as a single formatted string, ready to
+    drop into an LLM prompt. Same signature as before, so the
+    Diagnosis agent's call site doesn't need to change.
     """
-    client = chromadb.EphemeralClient()
+    retriever = get_retriever()
+    retrieved_docs = retriever.retrieve(query_text, n_results)
 
-    embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"
-    )
-
-    collection = client.get_or_create_collection(
-        name="grid_runbook",
-        embedding_function=embedding_fn
-    )
-
-    if collection.count() == 0:
-        collection.add(
-            ids=[entry["id"] for entry in RUNBOOK_ENTRIES],
-            documents=[entry["text"] for entry in RUNBOOK_ENTRIES]
-        )
-
-    return collection
-
-
-def retrieve_relevant_knowledge(query_text, n_results=2):
-    """
-    Queries the cached runbook collection with query_text and returns
-    the top n_results most relevant entries as a formatted string.
-    """
-    collection = get_runbook_collection()
-    results = collection.query(query_texts=[query_text], n_results=n_results)
-
-    retrieved_docs = results["documents"][0] if results["documents"] else []
     if not retrieved_docs:
         return "No specific operational guidance found for this profile."
 
