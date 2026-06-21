@@ -10,6 +10,7 @@ import requests
 from datetime import datetime
 from xgboost import XGBRegressor
 import plotly.graph_objects as go
+import os
 
 
 # ------------------------------------------------------------
@@ -184,3 +185,102 @@ def get_live_weather(lat, lon, location_label):
         }
     except Exception:
         return None
+    
+
+    # ------------------------------------------------------------
+# LIVE WEATHER FOR ALL ZONES
+# Loops get_live_weather() across all 11 zone coordinates.
+# Cached together so all 11 calls happen once, not on every rerun.
+# ------------------------------------------------------------
+@st.cache_data(ttl=600)
+def get_all_zone_weather():
+    """
+    Fetches live weather for every zone's representative city.
+    Returns a list of dicts, one per zone, or a partial list if
+    some zones fail (network issues), so one bad zone doesn't
+    break the whole table.
+    """
+    results = []
+    for zone, (lat, lon) in zone_coords.items():
+        label = f"Zone {zone} ({zone_names.get(zone, '')})"
+        weather = get_live_weather(lat, lon, label)
+        if weather:
+            weather["zone"] = zone
+            results.append(weather)
+    return results
+
+
+# ------------------------------------------------------------
+# NOAA WEATHER ALERTS (statewide, New York)
+# Separate endpoint from forecasts: returns active warnings,
+# watches, and advisories for a given state.
+# ------------------------------------------------------------
+@st.cache_data(ttl=300)  # alerts can change faster, shorter cache
+def get_ny_weather_alerts():
+    """
+    Fetches active NOAA weather alerts for New York state.
+    Returns a list of alert dicts (event type, area, headline),
+    or an empty list if there are none or the request fails.
+    """
+    headers = {"User-Agent": NWS_USER_AGENT}
+    try:
+        resp = requests.get(
+            "https://api.weather.gov/alerts/active?area=NY",
+            headers=headers, timeout=5
+        )
+        resp.raise_for_status()
+        features = resp.json().get("features", [])
+        alerts = []
+        for f in features:
+            props = f.get("properties", {})
+            alerts.append({
+                "event": props.get("event", "Alert"),
+                "headline": props.get("headline", ""),
+                "severity": props.get("severity", "Unknown"),
+                "area": props.get("areaDesc", "")
+            })
+        return alerts
+    except Exception:
+        return []
+
+        # ------------------------------------------------------------
+# LIVE NY ELECTRICITY DEMAND (EIA, real, public, statewide)
+# Separate from the synthetic per-generator predictions. Shown as
+# ambient real-world context, same honest framing as live weather.
+# ------------------------------------------------------------
+@st.cache_data(ttl=900)  # demand data updates hourly, 15 min cache is plenty
+def get_ny_live_demand():
+    """
+    Fetches the most recent hourly electricity demand for NYISO
+    from EIA's public API. Returns a dict with the value and
+    timestamp, or None if the request fails or no key is set.
+    """
+    api_key = os.environ.get("EIA_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        url = (
+            "https://api.eia.gov/v2/electricity/rto/region-data/data/"
+            f"?api_key={api_key}"
+            "&frequency=hourly"
+            "&data[0]=value"
+            "&facets[respondent][]=NYIS"
+            "&facets[type][]=D"
+            "&sort[0][column]=period"
+            "&sort[0][direction]=desc"
+            "&length=1"
+        )
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        rows = resp.json().get("response", {}).get("data", [])
+        if not rows:
+            return None
+        latest = rows[0]
+        return {
+            "demand_mw": float(latest["value"]),
+            "period": latest["period"]
+        }
+    except Exception:
+        return None
+    
