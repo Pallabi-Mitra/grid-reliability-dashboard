@@ -245,3 +245,52 @@ def get_ny_live_demand():
         }
     except Exception:
         return None
+@st.cache_data(ttl=600)
+def get_live_weather_predictions():
+    """
+    Fetches real current temp per zone from NOAA, substitutes it
+    into the latest CSV row's weather features, then re-scores
+    with the trained model.
+    """
+    assets, daily, df = load_data()
+    model = load_model()
+    model_features = model.get_booster().feature_names
+
+    latest_date = df["date"].max()
+    latest_df = df[df["date"] == latest_date].copy()
+
+    zone_weather_list = get_all_zone_weather()
+    zone_temp_map = {}
+    for w in zone_weather_list:
+        zone_temp_map[w["zone"]] = w["temperature"]
+
+    for zone, temp_f in zone_temp_map.items():
+        mask = latest_df["operating_region"] == zone
+        latest_df.loc[mask, "temp_avg"] = temp_f
+        latest_df.loc[mask, "temp_min"] = temp_f - 8
+        latest_df.loc[mask, "temp_max"] = temp_f + 8
+        latest_df.loc[mask, "temp_range"] = 16
+        latest_df.loc[mask, "cold_day_flag"] = int(temp_f < 20)
+        latest_df.loc[mask, "hot_day_flag"] = int(temp_f > 85)
+
+    latest_encoded = pd.get_dummies(latest_df, columns=categorical_cols)
+    for col in model_features:
+        if col not in latest_encoded.columns:
+            latest_encoded[col] = 0
+    latest_df["predicted_impact_ratio"] = model.predict(latest_encoded[model_features])
+    latest_df["predicted_impacted_mw"] = (
+        latest_df["predicted_impact_ratio"] * latest_df["dependable_capacity_mw"]
+    )
+
+    zone_summary = latest_df.groupby("operating_region").agg(
+        total_capacity_mw=("dependable_capacity_mw", "sum"),
+        predicted_mw_at_risk=("predicted_impacted_mw", "sum"),
+        num_generators=("asset_id", "count")
+    ).reset_index()
+    zone_summary["risk_pct"] = (
+        zone_summary["predicted_mw_at_risk"] / zone_summary["total_capacity_mw"]
+    ) * 100
+    zone_summary["risk_level"] = zone_summary["risk_pct"].apply(get_risk_color)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    return assets, daily, df, model, model_features, today, latest_df, zone_summary

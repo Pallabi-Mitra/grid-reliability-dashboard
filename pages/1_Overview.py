@@ -1,74 +1,106 @@
 # ============================================================
 # PAGE: OVERVIEW
-# Landing page. Shows live weather context, top-level statewide
-# metrics, and the NY zone risk map.
+# Landing page. Dark header bar, alert banner, metric cards,
+# live weather/alerts/EIA demand, zone risk map.
 # ============================================================
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+from datetime import datetime
 from shared import (
-    load_css, get_latest_predictions, build_map,
+    load_css, get_live_weather_predictions, build_map,
     get_all_zone_weather, get_ny_weather_alerts, get_ny_live_demand
 )
 
-# --- LOAD CSS ---
 load_css("styles.css")
 
-# --- LOAD DATA / MODEL / PREDICTIONS ---
-assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_latest_predictions()
+assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
 
-# --- SIDEBAR: FOOTER ONLY ---
 st.sidebar.markdown(
-    "<div class='sidebar-footer'>Synthetic data for demo purposes. No real operational data used.</div>",
+    "<div class='sidebar-footer'>Synthetic data · no real NYISO operational data used</div>",
     unsafe_allow_html=True
 )
 
-# --- PAGE HEADER ---
-st.title("💡 Grid Reliability Dashboard")
-st.caption("Real-time risk visibility across New York's grid")
-st.markdown("---")
+# --- PAGE HEADER BAR ---
+now = datetime.now().strftime("%b %d, %Y · %H:%M EST")
+st.markdown(f"""
+<div class="page-header">
+    <div>
+        <p class="page-header-title">Grid Reliability Intelligence Platform</p>
+        <p class="page-header-subtitle">New York load zones · synthetic demo data</p>
+    </div>
+    <div class="live-indicator">
+        <div class="live-dot"></div>
+        <span class="live-text">Live · {now}</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+# --- CONTENT AREA ---
+st.markdown('<div class="content-area">', unsafe_allow_html=True)
 
-# --- LIVE CONDITIONS: NY-WIDE WEATHER + ALERTS ---
+# --- ALERTS ---
 alerts = get_ny_weather_alerts()
-zone_weather = get_all_zone_weather()
-
 if alerts:
-    st.error(f"⚠️ {len(alerts)} active NOAA weather alert(s) for New York")
-    for a in alerts[:5]:
-        st.markdown(f"**{a['event']}** · {a['area']}")
-        st.caption(a['headline'])
-else:
-    st.success("No active NOAA weather alerts for New York")
+    alert_lines = "".join([
+        f"<strong>{a['event']}</strong> · {a['area']}<br>"
+        for a in alerts[:3]
+    ])
+    st.markdown(f"""
+    <div class="alert-banner">
+        <p class="alert-banner-text">
+            ⚠ {len(alerts)} active NOAA weather alert(s) for New York<br>
+            {alert_lines}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.markdown("---")
-
-st.subheader("🌐 Live Conditions by Zone")
-if zone_weather:
-    weather_df = pd.DataFrame(zone_weather)[["zone", "location", "temperature", "unit", "short_forecast"]]
-    weather_df.columns = ["Zone", "Location", "Temp", "Unit", "Conditions"]
-    st.dataframe(weather_df, use_container_width=True, hide_index=True)
-else:
-    st.info("Live weather data unavailable right now")
-
-st.markdown("---")
-
-# --- LIVE NY ELECTRICITY DEMAND (EIA, real public data) ---
+# --- METRICS ---
 demand = get_ny_live_demand()
-if demand:
-    st.info(f"⚡ Actual NY grid demand right now: **{demand['demand_mw']:,.0f} MW** (EIA public data, {demand['period']})")
+demand_val = f"{demand['demand_mw']:,.0f} MW" if demand else "unavailable"
+demand_sub = "EIA live" if demand else "EIA unavailable"
+
+st.markdown(f"""
+<div class="metric-grid">
+    <div class="metric-card">
+        <p class="metric-label">Total capacity</p>
+        <p class="metric-value">{zone_summary['total_capacity_mw'].sum():,.0f} MW</p>
+    </div>
+    <div class="metric-card">
+        <p class="metric-label">MW at risk</p>
+        <p class="metric-value" style="color:#DC2626;">{zone_summary['predicted_mw_at_risk'].sum():,.0f} MW</p>
+    </div>
+    <div class="metric-card">
+        <p class="metric-label">Zones at RED</p>
+        <p class="metric-value">{(zone_summary['risk_level'] == '🔴 RED').sum()} <span style="font-size:0.9rem;color:#64748B;font-weight:400;">/ 11</span></p>
+    </div>
+    <div class="metric-card">
+        <p class="metric-label">NY grid demand</p>
+        <p class="metric-value">{demand_val}</p>
+        <p class="metric-sub">{demand_sub}</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- LIVE CONDITIONS TABLE ---
+zone_weather = get_all_zone_weather()
+if zone_weather:
+    weather_df = pd.DataFrame(zone_weather)[["zone", "location", "temperature", "short_forecast"]]
+    weather_df.columns = ["Zone", "Location", "Temp (°F)", "Conditions"]
+    st.subheader("Live Conditions by Zone")
+    st.dataframe(weather_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
-
-# --- TOP METRICS ROW ---
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Total Capacity", f"{zone_summary['total_capacity_mw'].sum():.0f} MW")
-m2.metric("Total MW at Risk", f"{zone_summary['predicted_mw_at_risk'].sum():.0f} MW")
-m3.metric("Zones at RED", f"{(zone_summary['risk_level'] == '🔴 RED').sum()} / 11")
-avg_risk_pct = latest_df["predicted_impact_ratio"].mean() * 100
-m4.metric("Avg Risk Level", f"{avg_risk_pct:.0f}%")
 
 # --- ZONE RISK MAP ---
-st.markdown("---")
 st.subheader("NY Zone Risk Map")
-st.plotly_chart(build_map(zone_summary, f"Zone Risk · {latest_date}"), use_container_width=True)
+st.plotly_chart(build_map(zone_summary, f"Zone risk · {latest_date}"), use_container_width=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# --- FOOTER ---
+st.markdown("""
+<div class="page-footer">
+    <p class="page-footer-text">Synthetic data · no real NYISO operational data used</p>
+    <p class="page-footer-text">Grid Reliability Intelligence Platform</p>
+</div>
+""", unsafe_allow_html=True)

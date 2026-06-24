@@ -1,77 +1,83 @@
 /* ============================================================
-   GRID RELIABILITY DASHBOARD — DESIGN SYSTEM
-   Internal enterprise tool. Design goal: clarity under pressure.
-   Risk states (RED/YELLOW/GREEN) stay instantly legible, everything
-   else stays quiet. One consistent card style used everywhere.
-   ============================================================ */
-/* ============================================================
-   STREAMLIT CHROME OVERRIDES (corrected selectors)
+   GRID RELIABILITY INTELLIGENCE — DESIGN SYSTEM
+   Enterprise internal tool aesthetic. Dark header, clean white
+   cards, no emoji in UI, proper risk badges, data-first layout.
    ============================================================ */
 
-   /* Force title and heading colors regardless of platform or theme */
-h1, h2, h3 {
-    color: #1A2332 !important;
+/* --- STREAMLIT CHROME --- */
+header[data-testid="stHeader"] {
+    display: none;
 }
 
-.stApp h1, .stApp h2, .stApp h3 {
-    color: #1A2332 !important;
+.stApp {
+    background-color: #F4F6F9;
 }
-/* Force sidebar to always be visible and fixed width */
+
+.stMainBlockContainer {
+    padding-top: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    max-width: 100% !important;
+}
+
+/* --- SIDEBAR --- */
 [data-testid="stSidebar"] {
-    min-width: 250px !important;
-    max-width: 250px !important;
+    background-color: #1A2332;
+    border-right: none;
+    min-width: 240px !important;
+    max-width: 240px !important;
+}
+
+[data-testid="stSidebarUserContent"] {
+    padding-top: 0;
 }
 
 [data-testid="stSidebarCollapsedControl"] {
     display: none !important;
 }
 
-header[data-testid="stHeader"] {
-    display: none;
+/* Sidebar text colors */
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown {
+    color: #CBD5E1 !important;
 }
 
-.stApp {
-    background-color: #F7F8FA;
+[data-testid="stSidebar"] a {
+    color: #CBD5E1 !important;
+    text-decoration: none !important;
 }
 
-/* Correct current selector for main content padding, replaces
-   the old .block-container which wasn't reliably matching. */
-.stMainBlockContainer {
-    padding-top: 1.5rem !important;
-    padding-left: 3rem;
-    padding-right: 3rem;
-    max-width: 100%;
+[data-testid="stSidebar"] a:hover {
+    color: #FFFFFF !important;
+    background-color: rgba(255,255,255,0.08) !important;
+    border-radius: 6px;
 }
 
-[data-testid="stSidebar"] {
-    border-right: 1px solid #E2E5EB;
-    background-color: #FFFFFF;
+/* Active nav link */
+[data-testid="stSidebar"] [aria-selected="true"] {
+    background-color: rgba(59,130,246,0.2) !important;
+    color: #FFFFFF !important;
+    border-radius: 6px;
 }
 
-/* The actual scrollable content wrapper inside the sidebar.
-   Using flex here, instead of the old > div:first-child guess,
-   so the footer can be reliably pushed to the bottom. */
-[data-testid="stSidebarUserContent"] {
-    display: flex;
-    flex-direction: column;
-    min-height: calc(100vh - 2rem);
-    padding-top: 0.5rem;
-}
-
-/* --- SIDEBAR HEADER & SPACING --- */
+/* --- SIDEBAR HEADER --- */
 .sidebar-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 0.25rem 0 1.25rem 0;
+    gap: 12px;
+    padding: 20px 16px 16px;
+    border-bottom: 0.5px solid rgba(255,255,255,0.1);
+    margin-bottom: 8px;
 }
 
 .sidebar-icon {
     width: 32px;
     height: 32px;
-    background-color: #1A2332;
+    background-color: #3B82F6;
     color: #FFFFFF;
-    border-radius: 8px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -80,69 +86,171 @@ header[data-testid="stHeader"] {
 }
 
 .sidebar-title {
-    font-weight: 700;
-    font-size: 1.05rem;
-    color: #1A2332;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #FFFFFF !important;
+    letter-spacing: 0.01em;
 }
 
 .sidebar-footer {
+    padding: 16px;
+    font-size: 0.72rem;
+    color: #64748B !important;
+    border-top: 0.5px solid rgba(255,255,255,0.08);
     margin-top: auto;
-    padding: 1rem 0 0.5rem 0;
-    font-size: 0.75rem;
+}
+
+/* --- PAGE HEADER BAR --- */
+.page-header {
+    background-color: #1A2332;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.page-header-title {
+    color: #FFFFFF;
+    font-size: 1rem;
+    font-weight: 500;
+    margin: 0;
+}
+
+.page-header-subtitle {
     color: #94A3B8;
-    border-top: 1px solid #E2E5EB;
-}
-/* --- TYPOGRAPHY --- */
-html, body, [class*="css"] {
-    font-family: 'IBM Plex Sans', -apple-system, sans-serif;
-    color: #1A2332;
+    font-size: 0.75rem;
+    margin: 2px 0 0;
 }
 
-h1, h2, h3, h4 {
-    color: #1A2332;
-    font-weight: 600;
+.live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 6px;
+    padding: 5px 12px;
 }
 
-[data-testid="stMetricValue"] {
-    font-family: 'IBM Plex Mono', monospace;
-    color: #1A2332;
-    font-weight: 600;
+.live-dot {
+    width: 7px;
+    height: 7px;
+    background: #16A34A;
+    border-radius: 50%;
 }
 
-[data-testid="stMetricLabel"] {
+.live-text {
+    color: #CBD5E1;
+    font-size: 0.75rem;
+}
+
+/* --- CONTENT PADDING --- */
+.content-area {
+    padding: 0 28px 28px;
+}
+
+/* --- METRIC CARDS --- */
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.metric-card {
+    background: #FFFFFF;
+    border: 0.5px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 14px 16px;
+}
+
+.metric-label {
+    font-size: 0.68rem;
     color: #64748B;
-    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    margin: 0 0 6px;
+    font-weight: 500;
 }
 
-[data-testid="stCaptionContainer"] {
-    color: #64748B;
+.metric-value {
+    font-size: 1.4rem;
+    font-weight: 500;
+    color: #1A2332;
+    margin: 0;
 }
 
-hr {
-    border-color: #E2E5EB;
+.metric-sub {
+    font-size: 0.72rem;
+    color: #94A3B8;
+    margin: 3px 0 0;
 }
 
-/* ============================================================
-   CARD SYSTEM
-   Used for: Live Conditions widget, agent output cards (Executive
-   Summary page), SHAP explanation card (Risk Drivers page).
-   ============================================================ */
+/* --- RISK BADGES --- */
+.badge-red {
+    background: #FEE2E2;
+    color: #991B1B;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
 
+.badge-yellow {
+    background: #FEF9C3;
+    color: #854D0E;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.badge-green {
+    background: #DCFCE7;
+    color: #166534;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+/* --- ALERT BANNER --- */
+.alert-banner {
+    background: #FFFBEB;
+    border: 0.5px solid #D97706;
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.alert-banner-text {
+    color: #92400E;
+    font-size: 0.82rem;
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* --- AGENT OUTPUT CARDS --- */
 .app-card {
     background-color: #FFFFFF;
-    border: 1px solid #E2E5EB;
+    border: 0.5px solid #E2E8F0;
     border-radius: 10px;
     padding: 20px;
     margin: 10px 0;
-    box-shadow: 0 1px 3px rgba(26, 35, 50, 0.06);
 }
 
 .app-card-label {
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     font-weight: 600;
-    margin: 0 0 8px 0;
+    margin: 0 0 8px;
 }
 
 .app-card-label.monitor { color: #3B82F6; }
@@ -151,35 +259,53 @@ hr {
 
 .app-card-body {
     color: #1A2332;
-    font-size: 0.9rem;
-    line-height: 1.5;
+    font-size: 0.88rem;
+    line-height: 1.6;
     margin: 0;
 }
 
-.app-card-meta {
-    color: #64748B;
-    font-size: 0.85rem;
-    margin: 0 0 12px 0;
+/* --- TYPOGRAPHY --- */
+h1, h2, h3, h4 {
+    color: #1A2332 !important;
+    font-weight: 500;
 }
 
-.app-card-meta strong {
+[data-testid="stMetricValue"] {
     color: #1A2332;
-    font-weight: 600;
+    font-weight: 500;
 }
 
-.app-card-driver-label {
+[data-testid="stMetricLabel"] {
     color: #64748B;
     font-size: 0.8rem;
-    font-style: italic;
-    margin: 0 0 8px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
-.app-card-driver-line {
-    color: #1A2332;
-    font-size: 0.85rem;
-    margin: 4px 0;
+hr {
+    border-color: #E2E8F0;
 }
 
-.risk-badge-high { color: #DC2626; font-weight: 600; }
-.risk-badge-moderate { color: #D97706; font-weight: 600; }
-.risk-badge-low { color: #16A34A; font-weight: 600; }
+/* --- DATAFRAME --- */
+[data-testid="stDataFrame"] {
+    border: 0.5px solid #E2E8F0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* --- FOOTER --- */
+.page-footer {
+    background: #F8FAFC;
+    border-top: 0.5px solid #E2E8F0;
+    padding: 10px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 32px;
+}
+
+.page-footer-text {
+    font-size: 0.72rem;
+    color: #94A3B8;
+    margin: 0;
+}
