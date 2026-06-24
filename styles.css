@@ -8,6 +8,15 @@
    STREAMLIT CHROME OVERRIDES (corrected selectors)
    ============================================================ */
 
+   /* Force title and heading colors regardless of platform or theme */
+h1, h2, h3 {
+    color: #1A2332 !important;
+}
+
+.stApp h1, .stApp h2, .stApp h3 {
+    color: #1A2332 !important;
+}
+
 header[data-testid="stHeader"] {
     display: none;
 }
