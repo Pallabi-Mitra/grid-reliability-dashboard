@@ -88,7 +88,7 @@ else:
         from langchain_groq import ChatGroq
         from langgraph.graph import StateGraph, END
         from langgraph.graph.message import add_messages
-        from langchain.agents import create_react_agent
+        from langgraph.prebuilt import create_react_agent
         from typing import TypedDict, Annotated
         from knowledge_base import retrieve_relevant_knowledge
 
