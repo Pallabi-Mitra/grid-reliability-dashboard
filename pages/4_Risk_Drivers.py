@@ -72,8 +72,8 @@ asset_encoded = zone_gen_encoded[zone_generators["asset_id"] == selected_asset][
 # TreeExplainer is the SHAP method built for tree-based models (XGBoost).
 # It computes each feature's individual contribution to this ONE
 # prediction, not just global feature importance.
-explainer = shap.TreeExplainer(model)
-shap_values = explainer.shap_values(asset_encoded)
+explainer = shap.Explainer(model.get_booster(), algorithm="exact")
+shap_values = explainer(asset_encoded[model_features]).values
 shap_series = pd.Series(shap_values[0], index=model_features).abs().sort_values(ascending=False)
 top_features = shap_series.head(5)
 
