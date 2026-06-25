@@ -15,7 +15,7 @@ assets, daily, df, model, model_features, latest_date, latest_df, zone_summary =
 load_css("styles.css")
 
 # --- LOAD DATA / MODEL / PREDICTIONS ---
-assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_latest_predictions()
+assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
 
 # --- SIDEBAR: FOOTER ---
 st.sidebar.markdown(
