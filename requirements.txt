@@ -14,3 +14,4 @@ uvicorn
 requests
 scikit-learn
 lightgbm
+joblib 

@@ -205,7 +205,7 @@ if st.button("Run 7-Day Forecast", key="run_forecast"):
 # --- FOOTER ---
 st.markdown("""
 <div class="page-footer">
-    <p class="page-footer-text">Synthetic data · no real NYISO operational data used</p>
+    <p class="page-footer-text">Synthetic data · no real operational data used</p>
     <p class="page-footer-text">Grid Reliability Intelligence Platform</p>
 </div>
 """, unsafe_allow_html=True)
