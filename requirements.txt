@@ -2,7 +2,7 @@ streamlit
 pandas
 numpy
 xgboost
-shap==0.46.0
+shap==0.47.0
 plotly
 langchain-groq
 langgraph
