@@ -7,7 +7,6 @@
 # ============================================================
 import streamlit as st
 import pandas as pd
-import shap
 from shared import (
     load_css, get_live_weather_predictions, zone_names, categorical_cols
 )
