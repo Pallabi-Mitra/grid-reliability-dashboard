@@ -37,7 +37,7 @@ st.sidebar.page_link(risk_drivers, label="Risk Drivers", icon=":material/trouble
 
 st.sidebar.page_link(analytics, label="Performance Analytics", icon=":material/bar_chart:")
 st.sidebar.page_link(agent_ops, label="Agent Operations", icon=":material/smart_toy:")
-st.sidebar.page_link(agent_ops, label="ML Pipeline", icon=":material/smart_toy:")
+st.sidebar.page_link(ml_pipeline, label="ML Pipeline", icon=":material/smart_toy:")
 
 
 nav.run()
