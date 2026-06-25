@@ -9,6 +9,11 @@ from shared import (
     load_css, get_live_weather_predictions, build_map,
     get_all_zone_weather, get_ny_weather_alerts, get_ny_live_demand
 )
+from shared import (
+    load_css, get_live_weather_predictions, build_map,
+    get_all_zone_weather, get_ny_weather_alerts, get_ny_live_demand,
+    zone_names
+)
 
 load_css("styles.css")
 
@@ -106,7 +111,97 @@ with col_right:
 
 # --- CLOSE CONTENT DIV ---
 st.markdown('</div>', unsafe_allow_html=True)
+# --- 7-DAY ZONE RISK FORECAST ---
+from shared import get_zone_forecast, load_forecaster_models
+import plotly.graph_objects as go
 
+st.markdown("---")
+st.markdown("""
+<p style="font-size:0.72rem;font-weight:600;color:#64748B;text-transform:uppercase;
+letter-spacing:0.07em;margin:0 0 12px;">7-day zone risk forecast</p>
+""", unsafe_allow_html=True)
+
+forecast_zone = st.selectbox(
+    "Select zone to forecast:",
+    options=sorted(zone_summary["operating_region"].tolist()),
+    format_func=lambda z: f"Zone {z} · {zone_names.get(z, '')}",
+    key="forecast_zone_selector"
+)
+
+if st.button("Run 7-Day Forecast", key="run_forecast"):
+    with st.spinner("Running quantile forecast..."):
+        forecast_df = get_zone_forecast(forecast_zone)
+
+    if forecast_df is not None:
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=forecast_df["date"],
+            y=forecast_df["p95"],
+            mode="lines",
+            name="High estimate (p95)",
+            line=dict(color="#DC2626", dash="dot", width=1.5),
+            fill=None
+        ))
+        fig.add_trace(go.Scatter(
+            x=forecast_df["date"],
+            y=forecast_df["p50"],
+            mode="lines+markers",
+            name="Typical estimate (p50)",
+            line=dict(color="#1A2332", width=2),
+            fill="tonexty",
+            fillcolor="rgba(220,38,38,0.08)"
+        ))
+        fig.add_trace(go.Scatter(
+            x=forecast_df["date"],
+            y=forecast_df["p05"],
+            mode="lines",
+            name="Low estimate (p05)",
+            line=dict(color="#16A34A", dash="dot", width=1.5),
+            fill="tonexty",
+            fillcolor="rgba(22,163,74,0.08)"
+        ))
+
+        fig.update_layout(
+            height=320,
+            paper_bgcolor="#FFFFFF",
+            plot_bgcolor="#F8FAFC",
+            margin=dict(l=0, r=0, t=20, b=0),
+            yaxis=dict(
+                title="Zone risk % (capacity-weighted)",
+                range=[0, 1],
+                gridcolor="#E2E8F0"
+            ),
+            xaxis=dict(gridcolor="#E2E8F0"),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            font=dict(color="#1A2332", size=12)
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("""
+        <p style="font-size:0.72rem;font-weight:600;color:#64748B;text-transform:uppercase;
+        letter-spacing:0.07em;margin:12px 0 8px;">Daily forecast values</p>
+        """, unsafe_allow_html=True)
+        display_df = forecast_df.rename(columns={
+            "day": "Day", "date": "Date",
+            "p05": "Low (p05)", "p50": "Typical (p50)", "p95": "High (p95)"
+        })
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+        st.caption(
+            "Forecast uses quantile XGBoost (p05/p50/p95). "
+            "Simulates time passing by incrementing days_since_last_event forward. "
+            "Other features held at today's values. Synthetic data only."
+        )
+    else:
+        st.warning(f"No forecast data available for Zone {forecast_zone}.")
 # --- FOOTER ---
 st.markdown("""
 <div class="page-footer">

@@ -2,12 +2,20 @@
 # SHARED DATA, MODEL, AND UTILITIES
 # Imported by every page in pages/ so data and model load once,
 # consistently, instead of each page repeating setup code.
+#
+# LOAD ORDER (called by pages in this sequence):
+#   load_data() -> load_model() -> get_latest_predictions()
+#   OR
+#   load_data() -> load_model() -> get_all_zone_weather()
+#                               -> get_live_weather_predictions()
+#   Overview also calls: get_ny_weather_alerts(), get_ny_live_demand()
+#   Overview forecast calls: load_forecaster_models() -> get_zone_forecast()
 # ============================================================
 
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from xgboost import XGBRegressor
 import plotly.graph_objects as go
 import os
@@ -15,7 +23,6 @@ import os
 
 # ------------------------------------------------------------
 # CSS LOADER
-# Loads styles.css into the page. Called once per page, near the top.
 # ------------------------------------------------------------
 def load_css(filepath):
     with open(filepath) as f:
@@ -24,8 +31,7 @@ def load_css(filepath):
 
 # ------------------------------------------------------------
 # DATA AND MODEL LOADING
-# @st.cache_data / @st.cache_resource mean these only run once
-# per session, even though multiple pages call them.
+# Cached so CSVs and model.json load once per session.
 # ------------------------------------------------------------
 @st.cache_data
 def load_data():
@@ -33,6 +39,7 @@ def load_data():
     daily = pd.read_csv("daily_records.csv")
     df = daily.merge(assets, on="asset_id", how="left")
     return assets, daily, df
+
 
 @st.cache_resource
 def load_model():
@@ -43,15 +50,18 @@ def load_model():
 
 # ------------------------------------------------------------
 # STATIC LOOKUPS
-# Zone risk thresholds, colors, coordinates, and display names.
-# Kept in one place so every page colors/labels zones identically.
 # ------------------------------------------------------------
 categorical_cols = ["season", "fuel_category", "broad_asset_category", "operating_region"]
 
+
 def get_risk_color(pct):
-    if pct > 65: return "🔴 RED"
-    elif pct > 45: return "🟡 YELLOW"
-    else: return "🟢 GREEN"
+    if pct > 65:
+        return "🔴 RED"
+    elif pct > 45:
+        return "🟡 YELLOW"
+    else:
+        return "🟢 GREEN"
+
 
 color_map = {"🔴 RED": "#DC2626", "🟡 YELLOW": "#D97706", "🟢 GREEN": "#16A34A"}
 
@@ -70,12 +80,10 @@ zone_names = {
 
 
 # ------------------------------------------------------------
-# PREDICTIONS
-# Runs the model on the latest date in the dataset and builds
-# the zone-level summary table used across every page.
+# PREDICTIONS (synthetic data, fixed date from CSV)
+# Used by all pages except Overview.
 # ------------------------------------------------------------
 def get_latest_predictions():
-    """Loads data/model, scores the latest date, returns everything pages need."""
     assets, daily, df = load_data()
     model = load_model()
     model_features = model.get_booster().feature_names
@@ -86,8 +94,8 @@ def get_latest_predictions():
     for col in model_features:
         if col not in latest_encoded.columns:
             latest_encoded[col] = 0
-    X_latest = latest_encoded[model_features]
-    predicted_ratio = model.predict(X_latest)
+
+    predicted_ratio = model.predict(latest_encoded[model_features])
     latest_df["predicted_impact_ratio"] = predicted_ratio
     latest_df["predicted_impacted_mw"] = predicted_ratio * latest_df["dependable_capacity_mw"]
 
@@ -96,7 +104,9 @@ def get_latest_predictions():
         predicted_mw_at_risk=("predicted_impacted_mw", "sum"),
         num_generators=("asset_id", "count")
     ).reset_index()
-    zone_summary["risk_pct"] = (zone_summary["predicted_mw_at_risk"] / zone_summary["total_capacity_mw"]) * 100
+    zone_summary["risk_pct"] = (
+        zone_summary["predicted_mw_at_risk"] / zone_summary["total_capacity_mw"]
+    ) * 100
     zone_summary["risk_level"] = zone_summary["risk_pct"].apply(get_risk_color)
 
     return assets, daily, df, model, model_features, latest_date, latest_df, zone_summary
@@ -104,8 +114,7 @@ def get_latest_predictions():
 
 # ------------------------------------------------------------
 # ZONE MAP BUILDER
-# Shared by Overview (live data) and Scenario Simulator (simulated data).
-# Written once here so both pages stay visually identical.
+# Used by Overview and Scenario Simulator.
 # ------------------------------------------------------------
 def build_map(summary, title):
     fig = go.Figure()
@@ -121,7 +130,13 @@ def build_map(summary, title):
             marker=dict(size=35, color=color, line=dict(width=2, color="white")),
             text=[zone],
             textfont=dict(size=14, color="white", family="Arial Black"),
-            hovertext=f"Zone {zone} ({zone_names.get(zone,'')})<br>Risk Level: {row['risk_level']}<br>Risk %: {row['risk_pct']:.1f}%<br>MW at Risk: {row['predicted_mw_at_risk']:.1f}<br>Generators: {row['num_generators']}",
+            hovertext=(
+                f"Zone {zone} ({zone_names.get(zone, '')})<br>"
+                f"Risk Level: {row['risk_level']}<br>"
+                f"Risk %: {row['risk_pct']:.1f}%<br>"
+                f"MW at Risk: {row['predicted_mw_at_risk']:.1f}<br>"
+                f"Generators: {row['num_generators']}"
+            ),
             hoverinfo="text",
             showlegend=False
         ))
@@ -148,11 +163,11 @@ def build_map(summary, title):
 
 # ------------------------------------------------------------
 # LIVE WEATHER (NOAA api.weather.gov)
-# REAL, live, public data. Shown only as ambient "Live Conditions"
-# context on Overview. Never feeds into the model or predictions,
-# kept clearly separate per the project's synthetic-data framing.
+# Real public data. Used by Overview for ambient context and
+# by get_live_weather_predictions() to drive model inputs.
 # ------------------------------------------------------------
 NWS_USER_AGENT = "GridReliabilityDashboard, student-project@example.com"
+
 
 @st.cache_data(ttl=600)
 def get_live_weather(lat, lon, location_label):
@@ -245,13 +260,17 @@ def get_ny_live_demand():
         }
     except Exception:
         return None
+
+
+# ------------------------------------------------------------
+# LIVE-WEATHER-DRIVEN PREDICTIONS
+# Overview uses this instead of get_latest_predictions().
+# Substitutes real NOAA temperatures into the model's weather
+# features, then re-scores. Generator capacity, fuel type, and
+# maintenance history stay from the synthetic dataset.
+# ------------------------------------------------------------
 @st.cache_data(ttl=600)
 def get_live_weather_predictions():
-    """
-    Fetches real current temp per zone from NOAA, substitutes it
-    into the latest CSV row's weather features, then re-scores
-    with the trained model.
-    """
     assets, daily, df = load_data()
     model = load_model()
     model_features = model.get_booster().feature_names
@@ -277,6 +296,7 @@ def get_live_weather_predictions():
     for col in model_features:
         if col not in latest_encoded.columns:
             latest_encoded[col] = 0
+
     latest_df["predicted_impact_ratio"] = model.predict(latest_encoded[model_features])
     latest_df["predicted_impacted_mw"] = (
         latest_df["predicted_impact_ratio"] * latest_df["dependable_capacity_mw"]
@@ -294,3 +314,72 @@ def get_live_weather_predictions():
 
     today = datetime.now().strftime("%Y-%m-%d")
     return assets, daily, df, model, model_features, today, latest_df, zone_summary
+
+
+# ------------------------------------------------------------
+# FORECASTER MODELS (quantile XGBoost)
+# Three models predicting p05/p50/p95 of impact_ratio.
+# Trained offline in Jupyter, saved as forecaster_p*.json.
+# Loaded once per session, cached via st.cache_resource.
+# ------------------------------------------------------------
+@st.cache_resource
+def load_forecaster_models():
+    models = {}
+    for name in ["p05", "p50", "p95"]:
+        m = XGBRegressor()
+        m.load_model(f"forecaster_{name}.json")
+        models[name] = m
+    return models
+
+
+@st.cache_data(ttl=600)
+def get_zone_forecast(zone: str, days: int = 7):
+    """
+    Generates a 7-day capacity-weighted risk forecast for a zone.
+    Simulates time passing by incrementing days_since_last_event
+    forward by 1 each day. All other features held at today's values.
+    Returns a DataFrame with day, date, p05, p50, p95 columns.
+    """
+    assets, daily, df = load_data()
+    models = load_forecaster_models()
+
+    model_features = models["p50"].get_booster().feature_names
+    latest_date = df["date"].max()
+    zone_df = df[df["date"] == latest_date].copy()
+    zone_df = zone_df[zone_df["operating_region"] == zone].copy()
+
+    if zone_df.empty:
+        return None
+
+    forecast_rows = []
+    base_date = datetime.now()
+
+    for day_offset in range(1, days + 1):
+        forecast_date = (base_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+        day_df = zone_df.copy()
+
+        if "days_since_last_event" in day_df.columns:
+            day_df["days_since_last_event"] = day_df["days_since_last_event"] + day_offset
+
+        day_enc = pd.get_dummies(day_df, columns=categorical_cols)
+        for col in model_features:
+            if col not in day_enc.columns:
+                day_enc[col] = 0
+
+        X = day_enc[model_features]
+        capacities = day_df["dependable_capacity_mw"].values
+        total_capacity = capacities.sum()
+
+        p05_avg = float((models["p05"].predict(X) * capacities).sum() / total_capacity)
+        p50_avg = float((models["p50"].predict(X) * capacities).sum() / total_capacity)
+        p95_avg = float((models["p95"].predict(X) * capacities).sum() / total_capacity)
+
+        forecast_rows.append({
+            "day": f"Day +{day_offset}",
+            "date": forecast_date,
+            "p05": round(p05_avg, 3),
+            "p50": round(p50_avg, 3),
+            "p95": round(p95_avg, 3),
+        })
+
+    return pd.DataFrame(forecast_rows)
