@@ -1,24 +1,30 @@
 # ============================================================
 # PAGE: ML PIPELINE
-# Upload generator degradation CSV, run multiple ML models,
-# compare performance, generate predictions, download results.
+# Upload zone weather CSV. System auto-joins with assets.csv,
+# feature engineers, runs multiple ML models, compares results,
+# forecasts forward, downloads for operations team.
 #
-# Handles 3 upload formats:
-#   A) Labeled data (has impact_ratio) -> train + compare models
-#   B) Raw data (base columns, no labels) -> feature engineer + score
-#   C) Pre-engineered (has 53 model features) -> score directly
+# Three agents (pure Python, LangGraph):
+#   Agent 1: Data Validator - checks uploaded CSV
+#   Agent 2: Feature Engineer - joins assets, engineers features
+#   Agent 3: Model Runner - runs all models, ranks by MAE/R2
 # ============================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import asyncio
 from datetime import datetime, timedelta
+from typing import TypedDict
 from xgboost import XGBRegressor, Booster
 import xgboost as xgb
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import train_test_split
+from langgraph.graph import StateGraph, END
+import plotly.graph_objects as go
+import plotly.express as px
 from shared import load_css, zone_names
 
 load_css("styles.css")
@@ -27,19 +33,11 @@ load_css("styles.css")
 categorical_cols = ["season", "fuel_category", "broad_asset_category", "operating_region"]
 EXCLUDE_COLS = ["date", "asset_id", "impact_ratio", "date_str"]
 
-REQUIRED_RAW_COLS = [
-    "asset_id", "date", "dependable_capacity_mw", "temp_avg",
-    "temp_min", "temp_max", "season", "fuel_category",
-    "broad_asset_category", "operating_region"
-]
+# ── Load assets once ──
+@st.cache_data
+def load_assets():
+    return pd.read_csv("assets.csv")
 
-RISK_HORIZON_OPTIONS = {
-    "30 days": 30,
-    "90 days": 90,
-    "1 year (365 days)": 365
-}
-
-# ── Load existing trained model ──
 @st.cache_resource
 def load_base_model():
     _booster = Booster()
@@ -49,79 +47,224 @@ def load_base_model():
     m._estimator_type = "regressor"
     return m
 
+assets_df = load_assets()
 base_model = load_base_model()
 model_features = base_model.get_booster().feature_names
 
-# ── Helpers ──
-def get_risk_label(ratio):
-    if ratio > 0.65:
-        return "🔴 HIGH"
-    elif ratio > 0.45:
-        return "🟡 MODERATE"
-    return "🟢 LOW"
+# ── Pipeline State ──
+class PipelineState(TypedDict):
+    uploaded_df: object
+    assets_df: object
+    validation_report: dict
+    validation_passed: bool
+    engineered_df: object
+    X: object
+    y: object
+    has_labels: bool
+    selected_models: list
+    model_results: dict
+    best_model_name: str
+    predictions_df: object
+    error: str
 
-def feature_engineer(df):
-    encoded = pd.get_dummies(df, columns=categorical_cols)
+# ── Agent 1: Data Validator ──
+def data_validator(state: PipelineState) -> PipelineState:
+    df = state["uploaded_df"]
+    report = {"errors": [], "warnings": [], "rows": len(df), "zones_found": []}
+
+    required_cols = ["date", "operating_region", "temp_avg"]
+    for col in required_cols:
+        if col not in df.columns:
+            report["errors"].append(f"Missing required column: `{col}`")
+
+    if report["errors"]:
+        return {**state, "validation_report": report, "validation_passed": False}
+
+    valid_zones = assets_df["operating_region"].unique().tolist()
+    uploaded_zones = df["operating_region"].unique().tolist()
+    unknown_zones = [z for z in uploaded_zones if z not in valid_zones]
+    if unknown_zones:
+        report["errors"].append(f"Unknown zones: {unknown_zones}. Valid zones: {valid_zones}")
+
+    report["zones_found"] = [z for z in uploaded_zones if z in valid_zones]
+
+    if df["temp_avg"].isnull().any():
+        report["warnings"].append("Some temp_avg values are null. Will be filled with zone mean.")
+
+    if "temp_min" not in df.columns:
+        report["warnings"].append("temp_min not found. Will be estimated as temp_avg - 8.")
+    if "temp_max" not in df.columns:
+        report["warnings"].append("temp_max not found. Will be estimated as temp_avg + 8.")
+
+    if "impact_ratio" in df.columns:
+        report["has_labels"] = True
+        report["warnings"].append("impact_ratio found. Model comparison enabled.")
+    else:
+        report["has_labels"] = False
+
+    passed = len(report["errors"]) == 0
+    return {**state, "validation_report": report, "validation_passed": passed,
+            "has_labels": report.get("has_labels", False)}
+
+# ── Agent 2: Feature Engineer ──
+def feature_engineer(state: PipelineState) -> PipelineState:
+    if not state["validation_passed"]:
+        return state
+
+    weather_df = state["uploaded_df"].copy()
+    assets = state["assets_df"]
+
+    if "temp_min" not in weather_df.columns:
+        weather_df["temp_min"] = weather_df["temp_avg"] - 8
+    if "temp_max" not in weather_df.columns:
+        weather_df["temp_max"] = weather_df["temp_avg"] + 8
+
+    weather_df["temp_avg"] = weather_df.groupby("operating_region")["temp_avg"].transform(
+        lambda x: x.fillna(x.mean())
+    )
+
+    merged = assets.merge(weather_df, on="operating_region", how="left")
+
+    if "date" in merged.columns:
+        merged["date"] = pd.to_datetime(merged["date"], errors="coerce")
+        merged["month"] = merged["date"].dt.month
+        merged["day_of_year"] = merged["date"].dt.dayofyear
+        merged["day_of_week"] = merged["date"].dt.dayofweek
+
+    merged["temp_range"] = merged["temp_max"] - merged["temp_min"]
+    merged["cold_day_flag"] = (merged["temp_avg"] < 20).astype(int)
+    merged["hot_day_flag"] = (merged["temp_avg"] > 85).astype(int)
+
+    if "season" not in merged.columns:
+        def get_season(month):
+            if month in [12, 1, 2]: return "Winter"
+            elif month in [3, 4, 5]: return "Spring"
+            elif month in [6, 7, 8]: return "Summer"
+            else: return "Fall"
+        if "month" in merged.columns:
+            merged["season"] = merged["month"].apply(get_season)
+
+    encoded = pd.get_dummies(merged, columns=categorical_cols)
     for col in model_features:
         if col not in encoded.columns:
             encoded[col] = 0
-    return encoded
 
-def detect_format(df):
-    has_label = "impact_ratio" in df.columns
-    has_all_features = all(f in df.columns for f in model_features)
-    has_raw_cols = all(c in df.columns for c in REQUIRED_RAW_COLS)
-    if has_all_features:
-        return "pre_engineered", has_label
-    elif has_raw_cols:
-        return "raw", has_label
-    return "unknown", has_label
+    y = None
+    has_labels = state.get("has_labels", False)
+    if has_labels and "impact_ratio" in encoded.columns:
+        y = encoded["impact_ratio"]
 
-def score_with_model(model, X):
-    if hasattr(model, "_Booster"):
-        return model._Booster.predict(xgb.DMatrix(X))
-    return model.predict(X)
+    return {**state, "engineered_df": merged, "X": encoded[model_features], "y": y}
 
-def build_zone_summary(df):
-    summary = df.groupby("operating_region").agg(
-        total_capacity_mw=("dependable_capacity_mw", "sum"),
-        predicted_mw_at_risk=("predicted_impacted_mw", "sum"),
-        num_generators=("asset_id", "count")
-    ).reset_index()
-    summary["risk_pct"] = (summary["predicted_mw_at_risk"] / summary["total_capacity_mw"]) * 100
-    summary["risk_level"] = summary["risk_pct"].apply(
-        lambda x: "🔴 RED" if x > 65 else ("🟡 YELLOW" if x > 45 else "🟢 GREEN")
-    )
-    return summary
+# ── Agent 3: Model Runner ──
+def model_runner(state: PipelineState) -> PipelineState:
+    if not state["validation_passed"]:
+        return state
 
-def generate_forecast(scored_df, horizon_days):
-    rows = []
-    base_date = datetime.now()
-    for day in range(1, horizon_days + 1):
-        forecast_date = (base_date + timedelta(days=day)).strftime("%Y-%m-%d")
-        day_df = scored_df.copy()
-        if "days_since_last_event" in day_df.columns:
-            day_df["days_since_last_event"] += day
-        enc = feature_engineer(day_df)
-        preds = score_with_model(base_model, enc[model_features])
-        zone_avg = day_df.copy()
-        zone_avg["pred"] = preds
-        zone_avg["pred_mw"] = preds * day_df["dependable_capacity_mw"]
-        z = zone_avg.groupby("operating_region").agg(
-            total_mw=("dependable_capacity_mw", "sum"),
-            pred_mw_at_risk=("pred_mw", "sum")
-        ).reset_index()
-        z["risk_pct"] = (z["pred_mw_at_risk"] / z["total_mw"]) * 100
-        z["date"] = forecast_date
-        z["day_offset"] = f"Day +{day}"
-        rows.append(z)
-        if day in [1, horizon_days // 4, horizon_days // 2, horizon_days]:
-            pass
-    return pd.concat(rows, ignore_index=True)
+    X = state["X"]
+    y = state["y"]
+    has_labels = state.get("has_labels", False)
+    selected = state["selected_models"]
+    results = {}
 
-# ── Page Layout ──
+    for model_name in selected:
+        try:
+            if model_name == "XGBoost (existing)":
+                preds = base_model._Booster.predict(xgb.DMatrix(X))
+                results[model_name] = {"preds": preds, "mae": None, "r2": None}
+
+            elif model_name == "XGBoost (retrained)" and has_labels:
+                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
+                m = XGBRegressor(n_estimators=200, max_depth=5, learning_rate=0.05,
+                                 subsample=0.8, colsample_bytree=0.8, random_state=42,
+                                 objective="reg:squarederror")
+                m.fit(X_tr, y_tr)
+                preds = m.predict(X)
+                te_preds = m.predict(X_te)
+                results[model_name] = {
+                    "preds": preds,
+                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
+                    "r2": round(r2_score(y_te, te_preds), 4)
+                }
+
+            elif model_name == "LightGBM" and has_labels:
+                import lightgbm as lgb
+                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
+                m = lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05,
+                                       num_leaves=31, random_state=42, verbose=-1)
+                m.fit(X_tr, y_tr)
+                preds = m.predict(X)
+                te_preds = m.predict(X_te)
+                results[model_name] = {
+                    "preds": preds,
+                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
+                    "r2": round(r2_score(y_te, te_preds), 4)
+                }
+
+            elif model_name == "Random Forest" and has_labels:
+                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
+                m = RandomForestRegressor(n_estimators=100, max_depth=10,
+                                          random_state=42, n_jobs=-1)
+                m.fit(X_tr, y_tr)
+                preds = m.predict(X)
+                te_preds = m.predict(X_te)
+                results[model_name] = {
+                    "preds": preds,
+                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
+                    "r2": round(r2_score(y_te, te_preds), 4)
+                }
+
+            elif model_name == "Gradient Boosting" and has_labels:
+                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
+                m = GradientBoostingRegressor(n_estimators=100, max_depth=4,
+                                               learning_rate=0.05, random_state=42)
+                m.fit(X_tr, y_tr)
+                preds = m.predict(X)
+                te_preds = m.predict(X_te)
+                results[model_name] = {
+                    "preds": preds,
+                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
+                    "r2": round(r2_score(y_te, te_preds), 4)
+                }
+        except Exception as e:
+            results[model_name] = {"preds": None, "mae": None, "r2": None, "error": str(e)}
+
+    labeled_results = {k: v for k, v in results.items() if v.get("mae") is not None}
+    if labeled_results:
+        best = min(labeled_results, key=lambda k: labeled_results[k]["mae"])
+    else:
+        best = "XGBoost (existing)"
+
+    eng_df = state["engineered_df"].copy()
+    if best in results and results[best]["preds"] is not None:
+        eng_df["predicted_impact_ratio"] = np.clip(results[best]["preds"], 0, 1)
+        eng_df["predicted_impacted_mw"] = (
+            eng_df["predicted_impact_ratio"] * eng_df["dependable_capacity_mw"]
+        )
+        eng_df["risk_level"] = eng_df["predicted_impact_ratio"].apply(
+            lambda x: "🔴 HIGH" if x > 0.65 else ("🟡 MODERATE" if x > 0.45 else "🟢 LOW")
+        )
+
+    return {**state, "model_results": results, "best_model_name": best,
+            "predictions_df": eng_df}
+
+# ── Build LangGraph Pipeline ──
+def build_pipeline():
+    graph = StateGraph(PipelineState)
+    graph.add_node("validator", data_validator)
+    graph.add_node("engineer", feature_engineer)
+    graph.add_node("runner", model_runner)
+    graph.set_entry_point("validator")
+    graph.add_edge("validator", "engineer")
+    graph.add_edge("engineer", "runner")
+    graph.add_edge("runner", END)
+    return graph.compile()
+
+pipeline = build_pipeline()
+
+# ── Page UI ──
 st.title("⚙️ ML Pipeline")
-st.caption("Upload generator degradation data, compare ML models, forecast future risk")
+st.caption("Upload zone weather data. System joins generator data, engineers features, runs ML models, forecasts risk.")
 st.markdown("---")
 
 st.sidebar.markdown(
@@ -129,288 +272,323 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-# ── Upload Section ──
-st.markdown("### 1. Upload Generator Data")
-st.markdown(
-    "Upload a CSV with generator degradation records. "
-    "The page auto-detects the format and runs the right pipeline."
-)
+st.markdown("### 1. Upload Weather Data")
 
-with st.expander("Expected CSV format"):
+with st.expander("What to upload"):
     st.markdown("""
-**Minimum required columns (raw format):**
+Upload a CSV with weather observations per zone. The system automatically joins with the generator database.
 
-| Column | Description |
+**Required columns:**
+
+| Column | Example |
 |---|---|
-| `asset_id` | Generator ID e.g. AST-001 |
-| `date` | Date string YYYY-MM-DD |
-| `dependable_capacity_mw` | Generator capacity in MW |
-| `temp_avg` | Average temperature °F |
-| `temp_min` | Min temperature °F |
-| `temp_max` | Max temperature °F |
-| `season` | Summer / Winter / Spring / Fall |
-| `fuel_category` | Gas / Hydro / Nuclear / Oil / Wind / Solar |
-| `broad_asset_category` | Thermal / Renewable / Nuclear |
-| `operating_region` | Zone letter A through K |
+| `date` | 2026-07-01 |
+| `operating_region` | A |
+| `temp_avg` | 88 |
 
-**Optional:** Include `impact_ratio` (0.0-1.0) to unlock model comparison and evaluation.
+**Optional columns:**
+
+| Column | Example |
+|---|---|
+| `temp_min` | 75 |
+| `temp_max` | 95 |
+| `impact_ratio` | 0.62 (enables model comparison) |
+
+**Valid zones:** A B C D E F G H I J K
 """)
+    sample = pd.DataFrame({
+        "date": ["2026-07-01"] * 3,
+        "operating_region": ["A", "B", "J"],
+        "temp_avg": [88, 82, 91],
+        "temp_min": [75, 70, 80],
+        "temp_max": [95, 90, 98]
+    })
+    st.dataframe(sample, hide_index=True)
+    buf = io.StringIO()
+    sample.to_csv(buf, index=False)
+    st.download_button("Download sample CSV", buf.getvalue(),
+                       file_name="sample_weather.csv", mime="text/csv")
 
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+uploaded_file = st.file_uploader("Upload weather CSV", type=["csv"])
 
-if uploaded_file is not None:
+if uploaded_file:
     try:
-        df_raw = pd.read_csv(uploaded_file)
+        df_upload = pd.read_csv(uploaded_file)
     except Exception as e:
-        st.error(f"Could not read CSV: {e}")
+        st.error(f"Could not read file: {e}")
         st.stop()
 
-    st.success(f"Loaded {len(df_raw):,} rows, {df_raw.shape[1]} columns.")
+    st.success(f"Loaded {len(df_upload):,} rows.")
 
-    fmt, has_labels = detect_format(df_raw)
-
-    if fmt == "unknown":
-        st.error(
-            "CSV format not recognized. Missing required columns. "
-            "Expand 'Expected CSV format' above to see what's needed."
-        )
-        missing = [c for c in REQUIRED_RAW_COLS if c not in df_raw.columns]
-        st.write("Missing columns:", missing)
-        st.stop()
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Rows", f"{len(df_raw):,}")
-    with col2:
-        zones_found = df_raw["operating_region"].nunique() if "operating_region" in df_raw.columns else "?"
-        st.metric("Zones", zones_found)
-    with col3:
-        generators_found = df_raw["asset_id"].nunique() if "asset_id" in df_raw.columns else "?"
-        st.metric("Generators", generators_found)
-
-    if fmt == "pre_engineered":
-        st.info("Format detected: Pre-engineered (53 model features present). Scoring directly.")
-    elif fmt == "raw":
-        st.info("Format detected: Raw generator data. Running feature engineering then scoring.")
-    if has_labels:
-        st.info("Target column `impact_ratio` found. Model comparison available.")
-
-    st.markdown("---")
-
-    # ── Model Selection ──
     st.markdown("### 2. Select Models")
+    has_labels_preview = "impact_ratio" in df_upload.columns
 
-    model_options = {
-        "XGBoost (trained model)": "xgb_base",
-        "XGBoost (retrained on upload)": "xgb_new",
-        "LightGBM": "lgbm",
-        "Random Forest": "rf",
-        "Gradient Boosting": "gbm",
-    }
-
-    if not has_labels:
-        available = {"XGBoost (trained model)": "xgb_base"}
-        st.warning("No `impact_ratio` column found. Only the existing trained model can score this data. Add `impact_ratio` to compare models.")
+    model_options = ["XGBoost (existing)"]
+    if has_labels_preview:
+        model_options += ["XGBoost (retrained)", "LightGBM", "Random Forest", "Gradient Boosting"]
     else:
-        available = model_options
+        st.info("Add `impact_ratio` column to your CSV to unlock model comparison and retraining.")
 
-    selected_model_names = st.multiselect(
-        "Choose models to run:",
-        options=list(available.keys()),
-        default=["XGBoost (trained model)"] if not has_labels else [
-            "XGBoost (trained model)", "XGBoost (retrained on upload)", "Random Forest"
-        ]
+    selected_models = st.multiselect(
+        "Models to run:",
+        options=model_options,
+        default=model_options[:3] if len(model_options) >= 3 else model_options
     )
 
-    if not selected_model_names:
-        st.warning("Select at least one model.")
-        st.stop()
-
-    # ── Forecast Horizon ──
     st.markdown("### 3. Forecast Horizon")
     horizon_label = st.selectbox(
-        "How far ahead to forecast:",
-        options=list(RISK_HORIZON_OPTIONS.keys()),
-        index=0
+        "Forecast ahead:",
+        ["30 days", "90 days", "1 year (365 days)"]
     )
-    horizon_days = RISK_HORIZON_OPTIONS[horizon_label]
+    horizon_days = {"30 days": 30, "90 days": 90, "1 year (365 days)": 365}[horizon_label]
 
     st.markdown("---")
 
-    # ── Run Pipeline ──
-    if st.button("Run ML Pipeline", type="primary"):
+    if st.button("Run Pipeline", type="primary"):
+        with st.spinner("Running 3-agent pipeline..."):
+            initial_state = PipelineState(
+                uploaded_df=df_upload,
+                assets_df=assets_df,
+                validation_report={},
+                validation_passed=False,
+                engineered_df=None,
+                X=None,
+                y=None,
+                has_labels=has_labels_preview,
+                selected_models=selected_models,
+                model_results={},
+                best_model_name="",
+                predictions_df=None,
+                error=""
+            )
+            result = pipeline.invoke(initial_state)
 
-        with st.spinner("Running pipeline..."):
+        report = result["validation_report"]
 
-            # Feature engineer if needed
-            if fmt == "raw":
-                df_enc = feature_engineer(df_raw)
-            else:
-                df_enc = df_raw.copy()
-                for col in model_features:
-                    if col not in df_enc.columns:
-                        df_enc[col] = 0
+        st.markdown("### Agent 1: Validation Report")
+        if report.get("errors"):
+            for e in report["errors"]:
+                st.error(e)
+            st.stop()
+        else:
+            st.success(f"Validation passed. {report['rows']:,} rows. Zones: {report['zones_found']}")
+        for w in report.get("warnings", []):
+            st.warning(w)
 
-            X = df_enc[model_features]
-            y = df_raw["impact_ratio"] if has_labels else None
+        st.markdown("### Agent 2: Feature Engineering")
+        st.success(f"Joined with {len(assets_df)} generators. Built {len(model_features)} features.")
 
-            results = {}
-            trained_models = {}
+        st.markdown("### Agent 3: Model Results")
 
-            for model_name in selected_model_names:
-                key = available[model_name]
+        model_results = result["model_results"]
+        best_model = result["best_model_name"]
 
-                if key == "xgb_base":
-                    preds = score_with_model(base_model, X)
-                    trained_models[model_name] = base_model
-
-                elif key == "xgb_new":
-                    if has_labels:
-                        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                        m = XGBRegressor(n_estimators=200, max_depth=5, learning_rate=0.05,
-                                         subsample=0.8, colsample_bytree=0.8, random_state=42,
-                                         objective="reg:squarederror")
-                        m.fit(X_tr, y_tr)
-                        preds = m.predict(X)
-                        trained_models[model_name] = m
-                    else:
-                        continue
-
-                elif key == "lgbm":
-                    try:
-                        import lightgbm as lgb
-                        if has_labels:
-                            X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                            m = lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05,
-                                                   num_leaves=31, random_state=42, verbose=-1)
-                            m.fit(X_tr, y_tr)
-                            preds = m.predict(X)
-                            trained_models[model_name] = m
-                        else:
-                            continue
-                    except ImportError:
-                        st.warning("LightGBM not installed. Add `lightgbm` to requirements.txt.")
-                        continue
-
-                elif key == "rf":
-                    if has_labels:
-                        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                        m = RandomForestRegressor(n_estimators=100, max_depth=10,
-                                                   random_state=42, n_jobs=-1)
-                        m.fit(X_tr, y_tr)
-                        preds = m.predict(X)
-                        trained_models[model_name] = m
-                    else:
-                        continue
-
-                elif key == "gbm":
-                    if has_labels:
-                        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                        m = GradientBoostingRegressor(n_estimators=100, max_depth=4,
-                                                       learning_rate=0.05, random_state=42)
-                        m.fit(X_tr, y_tr)
-                        preds = m.predict(X)
-                        trained_models[model_name] = m
-                    else:
-                        continue
-
-                results[model_name] = preds
-
-            if not results:
-                st.error("No models ran. Check your data format.")
-                st.stop()
-
-        # ── Model Comparison ──
-        if has_labels and len(results) > 1:
-            st.markdown("### Model Comparison")
-            comparison_rows = []
-            for mname, preds in results.items():
-                mae = mean_absolute_error(y, preds)
-                r2 = r2_score(y, preds)
-                comparison_rows.append({
+        labeled = {k: v for k, v in model_results.items() if v.get("mae") is not None}
+        if labeled:
+            comp_rows = []
+            for mname, mdata in labeled.items():
+                comp_rows.append({
                     "Model": mname,
-                    "MAE": round(mae, 4),
-                    "R²": round(r2, 4)
+                    "MAE": mdata["mae"],
+                    "R²": mdata["r2"],
+                    "Best": "✅" if mname == best_model else ""
                 })
-            comp_df = pd.DataFrame(comparison_rows).sort_values("MAE")
-            best_model_name = comp_df.iloc[0]["Model"]
-
+            comp_df = pd.DataFrame(comp_rows).sort_values("MAE")
             st.dataframe(comp_df, hide_index=True, width='stretch')
-            st.success(f"Best model by MAE: **{best_model_name}**")
-        else:
-            best_model_name = list(results.keys())[0]
+            st.success(f"Best model: **{best_model}**")
 
-        # ── Predictions from Best Model ──
-        st.markdown("### Generator Predictions")
-        st.caption(f"Using: {best_model_name}")
+            fig_comp = go.Figure()
+            for row in comp_rows:
+                fig_comp.add_trace(go.Bar(
+                    name=row["Model"],
+                    x=["MAE", "1 - R²"],
+                    y=[row["MAE"], 1 - row["R²"]],
+                ))
+            fig_comp.update_layout(
+                barmode="group",
+                title="Model Comparison (lower is better)",
+                paper_bgcolor="#0D1B2A",
+                plot_bgcolor="#0D1B2A",
+                font=dict(color="#E2E8F0"),
+                height=350
+            )
+            st.plotly_chart(fig_comp, width='stretch')
 
-        best_preds = results[best_model_name]
-        df_out = df_raw.copy()
-        df_out["predicted_impact_ratio"] = np.clip(best_preds, 0, 1)
-        df_out["predicted_impacted_mw"] = df_out["predicted_impact_ratio"] * df_out["dependable_capacity_mw"]
-        df_out["risk_level"] = df_out["predicted_impact_ratio"].apply(get_risk_label)
+        preds_df = result["predictions_df"]
 
-        display_cols = ["asset_id", "operating_region", "fuel_category",
-                        "dependable_capacity_mw", "predicted_impact_ratio",
-                        "predicted_impacted_mw", "risk_level"]
-        display_cols = [c for c in display_cols if c in df_out.columns]
+        if preds_df is not None and "predicted_impact_ratio" in preds_df.columns:
 
-        st.dataframe(
-            df_out[display_cols].sort_values("predicted_impact_ratio", ascending=False),
-            hide_index=True,
-            width='stretch'
-        )
+            st.markdown("### Generator Predictions")
+            display_cols = [c for c in [
+                "asset_id", "operating_region", "fuel_category",
+                "dependable_capacity_mw", "predicted_impact_ratio",
+                "predicted_impacted_mw", "risk_level"
+            ] if c in preds_df.columns]
+            st.dataframe(
+                preds_df[display_cols].sort_values("predicted_impact_ratio", ascending=False),
+                hide_index=True, width='stretch'
+            )
 
-        # ── Zone Summary ──
-        if "operating_region" in df_out.columns and "dependable_capacity_mw" in df_out.columns:
             st.markdown("### Zone Risk Summary")
-            zone_sum = build_zone_summary(df_out)
-            st.dataframe(zone_sum, hide_index=True, width='stretch')
-
-        # ── Forecast ──
-        st.markdown(f"### {horizon_label} Forecast")
-        st.caption("Projecting forward using existing XGBoost model with daily time step")
-
-        if fmt == "raw" and "operating_region" in df_raw.columns:
-            with st.spinner(f"Generating {horizon_label} forecast..."):
-                forecast_df = generate_forecast(df_raw, min(horizon_days, 30))
-
-            pivot = forecast_df.pivot_table(
-                index="date", columns="operating_region", values="risk_pct"
+            zone_sum = preds_df.groupby("operating_region").agg(
+                total_mw=("dependable_capacity_mw", "sum"),
+                predicted_mw_at_risk=("predicted_impacted_mw", "sum"),
+                generators=("asset_id", "count")
             ).reset_index()
-            st.dataframe(pivot, hide_index=True, width='stretch')
-        else:
-            st.info("Forecast requires raw format with `operating_region` and base columns.")
+            zone_sum["risk_pct"] = (zone_sum["predicted_mw_at_risk"] / zone_sum["total_mw"]) * 100
+            zone_sum["zone_name"] = zone_sum["operating_region"].map(zone_names)
 
-        # ── Download ──
-        st.markdown("### Download Results")
+            fig_zone = go.Figure()
+            colors = ["#DC2626" if r > 65 else "#D97706" if r > 45 else "#16A34A"
+                      for r in zone_sum["risk_pct"]]
+            fig_zone.add_trace(go.Bar(
+                x=zone_sum["operating_region"],
+                y=zone_sum["risk_pct"],
+                marker_color=colors,
+                text=[f"{r:.1f}%" for r in zone_sum["risk_pct"]],
+                textposition="outside",
+                hovertext=[
+                    f"Zone {r['operating_region']} ({r['zone_name']})<br>"
+                    f"Risk: {r['risk_pct']:.1f}%<br>"
+                    f"MW at risk: {r['predicted_mw_at_risk']:.1f}<br>"
+                    f"Generators: {r['generators']}"
+                    for _, r in zone_sum.iterrows()
+                ],
+                hoverinfo="text"
+            ))
+            fig_zone.update_layout(
+                title="Predicted Risk % by Zone",
+                xaxis_title="Zone",
+                yaxis_title="Risk %",
+                paper_bgcolor="#0D1B2A",
+                plot_bgcolor="#0D1B2A",
+                font=dict(color="#E2E8F0"),
+                height=400
+            )
+            st.plotly_chart(fig_zone, width='stretch')
 
-        csv_buffer = io.StringIO()
-        df_out.to_csv(csv_buffer, index=False)
-        st.download_button(
-            label="Download Predictions CSV",
-            data=csv_buffer.getvalue(),
-            file_name=f"ml_pipeline_predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv"
-        )
+            if len(labeled) > 1:
+                st.markdown("### Model Prediction Comparison by Zone")
+                zone_comp_data = []
+                for mname, mdata in model_results.items():
+                    if mdata.get("preds") is not None:
+                        tmp = preds_df[["operating_region", "dependable_capacity_mw"]].copy()
+                        tmp["pred"] = np.clip(mdata["preds"], 0, 1)
+                        tmp["pred_mw"] = tmp["pred"] * tmp["dependable_capacity_mw"]
+                        z = tmp.groupby("operating_region").agg(
+                            total_mw=("dependable_capacity_mw", "sum"),
+                            pred_mw=("pred_mw", "sum")
+                        ).reset_index()
+                        z["risk_pct"] = (z["pred_mw"] / z["total_mw"]) * 100
+                        z["model"] = mname
+                        zone_comp_data.append(z)
 
-        if has_labels and len(results) > 1:
-            comp_buffer = io.StringIO()
-            comp_df.to_csv(comp_buffer, index=False)
+                if zone_comp_data:
+                    comp_all = pd.concat(zone_comp_data)
+                    fig_multi = px.bar(
+                        comp_all, x="operating_region", y="risk_pct",
+                        color="model", barmode="group",
+                        title="Risk % per Zone by Model",
+                        labels={"operating_region": "Zone", "risk_pct": "Risk %", "model": "Model"},
+                        color_discrete_sequence=px.colors.qualitative.Set2
+                    )
+                    fig_multi.update_layout(
+                        paper_bgcolor="#0D1B2A",
+                        plot_bgcolor="#0D1B2A",
+                        font=dict(color="#E2E8F0"),
+                        height=400
+                    )
+                    st.plotly_chart(fig_multi, width='stretch')
+
+            st.markdown(f"### {horizon_label} Forecast")
+            st.caption("Using existing XGBoost quantile forecasters (p05/p50/p95)")
+
+            try:
+                from shared import load_forecaster_models
+                forecasters = load_forecaster_models()
+                forecast_rows = []
+                base_date = datetime.now()
+
+                for day_offset in range(1, min(horizon_days, 90) + 1):
+                    forecast_date = (base_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+                    day_df = preds_df.copy()
+                    if "days_since_last_event" in day_df.columns:
+                        day_df["days_since_last_event"] += day_offset
+                    day_enc = pd.get_dummies(day_df, columns=categorical_cols)
+                    for col in model_features:
+                        if col not in day_enc.columns:
+                            day_enc[col] = 0
+                    X_day = day_enc[model_features]
+                    caps = day_df["dependable_capacity_mw"].values
+                    total = caps.sum()
+                    p05 = float((forecasters["p05"]._Booster.predict(xgb.DMatrix(X_day)) * caps).sum() / total)
+                    p50 = float((forecasters["p50"]._Booster.predict(xgb.DMatrix(X_day)) * caps).sum() / total)
+                    p95 = float((forecasters["p95"]._Booster.predict(xgb.DMatrix(X_day)) * caps).sum() / total)
+                    forecast_rows.append({"date": forecast_date, "p05": p05, "p50": p50, "p95": p95})
+
+                fc_df = pd.DataFrame(forecast_rows)
+                fig_fc = go.Figure()
+                fig_fc.add_trace(go.Scatter(
+                    x=fc_df["date"], y=fc_df["p95"],
+                    fill=None, mode="lines",
+                    line=dict(color="#DC2626", width=0),
+                    name="p95 (worst case)"
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=fc_df["date"], y=fc_df["p05"],
+                    fill="tonexty", mode="lines",
+                    line=dict(color="#16A34A", width=0),
+                    fillcolor="rgba(220,38,38,0.15)",
+                    name="p05 (best case)"
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=fc_df["date"], y=fc_df["p50"],
+                    mode="lines",
+                    line=dict(color="#F59E0B", width=2),
+                    name="p50 (median)"
+                ))
+                fig_fc.update_layout(
+                    title=f"Capacity-Weighted Risk Forecast ({horizon_label})",
+                    xaxis_title="Date",
+                    yaxis_title="Impact Ratio",
+                    paper_bgcolor="#0D1B2A",
+                    plot_bgcolor="#0D1B2A",
+                    font=dict(color="#E2E8F0"),
+                    height=400,
+                    legend=dict(bgcolor="#0D1B2A")
+                )
+                st.plotly_chart(fig_fc, width='stretch')
+            except Exception as e:
+                st.warning(f"Forecast skipped: {e}")
+
+            st.markdown("### Download Results")
+            out_buf = io.StringIO()
+            preds_df[display_cols].to_csv(out_buf, index=False)
             st.download_button(
-                label="Download Model Comparison CSV",
-                data=comp_buffer.getvalue(),
-                file_name=f"model_comparison_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                "Download Predictions CSV",
+                out_buf.getvalue(),
+                file_name=f"predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv"
             )
 
+            if labeled:
+                comp_buf = io.StringIO()
+                comp_df.to_csv(comp_buf, index=False)
+                st.download_button(
+                    "Download Model Comparison CSV",
+                    comp_buf.getvalue(),
+                    file_name=f"model_comparison_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv"
+                )
+
 else:
-    st.info("Upload a CSV file above to get started.")
-    st.markdown("### What this page does")
+    st.info("Upload a weather CSV to start the pipeline.")
     st.markdown("""
-- **Upload** generator degradation data in CSV format
-- **Auto-detect** format: raw columns, pre-engineered features, or labeled data
-- **Compare models**: XGBoost, LightGBM, Random Forest, Gradient Boosting
-- **Forecast** generator risk for 30, 90, or 365 days ahead
-- **Download** predictions and model comparison for your operations team
+**How the 3-agent pipeline works:**
+
+1. **Validator Agent** checks zones, columns, null values
+2. **Feature Engineer Agent** joins your weather data with the full generator database automatically
+3. **Model Runner Agent** trains and compares XGBoost, LightGBM, Random Forest, Gradient Boosting
+
+You only need `date`, `operating_region`, and `temp_avg`.
 """)

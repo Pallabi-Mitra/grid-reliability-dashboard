@@ -99,7 +99,8 @@ def get_latest_predictions():
         if col not in latest_encoded.columns:
             latest_encoded[col] = 0
 
-    predicted_ratio = model.predict(latest_encoded[model_features])
+    import xgboost as xgb
+    predicted_ratio = model._Booster.predict(xgb.DMatrix(latest_encoded[model_features]))
     latest_df["predicted_impact_ratio"] = predicted_ratio
     latest_df["predicted_impacted_mw"] = predicted_ratio * latest_df["dependable_capacity_mw"]
 
@@ -301,7 +302,8 @@ def get_live_weather_predictions():
         if col not in latest_encoded.columns:
             latest_encoded[col] = 0
 
-    latest_df["predicted_impact_ratio"] = model.predict(latest_encoded[model_features])
+    import xgboost as xgb
+    latest_df["predicted_impact_ratio"] = model._Booster.predict(xgb.DMatrix(latest_encoded[model_features]))
     latest_df["predicted_impacted_mw"] = (
         latest_df["predicted_impact_ratio"] * latest_df["dependable_capacity_mw"]
     )
