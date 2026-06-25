@@ -5,13 +5,14 @@
 # This is the explainability layer, turns a black-box prediction
 # into a plain-English breakdown of the top contributing factors.
 # ============================================================
-
 import streamlit as st
 import pandas as pd
 import shap
-assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
-# --- PAGE CONFIG ---
+from shared import (
+    load_css, get_live_weather_predictions, zone_names, categorical_cols
+)
 
+# --- LOAD CSS ---
 load_css("styles.css")
 
 # --- LOAD DATA / MODEL / PREDICTIONS ---
