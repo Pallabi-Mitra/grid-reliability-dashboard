@@ -21,10 +21,8 @@ nav = st.navigation(
     position="hidden"
 )
 
-# --- SIDEBAR: IDENTITY HEADER ---
 st.sidebar.markdown("""
 <div class="sidebar-header">
-    
     <div class="sidebar-title">Grid Reliability</div>
 </div>
 """, unsafe_allow_html=True)
