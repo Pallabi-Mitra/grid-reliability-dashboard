@@ -30,14 +30,14 @@ st.sidebar.markdown("""
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR: CUSTOM NAV LINKS, in chosen order ---
-st.sidebar.page_link(overview, label="Overview", icon=":material/dashboard:")
-st.sidebar.page_link(simulator, label="Scenario Simulator", icon=":material/thermostat:")
-st.sidebar.page_link(zone_gen, label="Zone Generators", icon=":material/bolt:")
-st.sidebar.page_link(risk_drivers, label="Risk Drivers", icon=":material/troubleshoot:")
+st.sidebar.page_link(overview, label="Overview")
+st.sidebar.page_link(simulator, label="Scenario Simulator")
+st.sidebar.page_link(zone_gen, label="Zone Generators")
+st.sidebar.page_link(risk_drivers, label="Risk Drivers")
 
-st.sidebar.page_link(analytics, label="Performance Analytics", icon=":material/bar_chart:")
-st.sidebar.page_link(agent_ops, label="Agent Operations", icon=":material/smart_toy:")
-st.sidebar.page_link(ml_pipeline, label="ML Pipeline", icon=":material/smart_toy:")
+st.sidebar.page_link(analytics, label="Performance Analytics")
+st.sidebar.page_link(agent_ops, label="Agent Operations")
+st.sidebar.page_link(ml_pipeline, label="ML Pipeline")
 
 
 nav.run()
