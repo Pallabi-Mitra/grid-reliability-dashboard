@@ -15,9 +15,9 @@ zone_gen = st.Page("pages/3_Zone_Generators.py", title="Zone Generators", icon="
 risk_drivers = st.Page("pages/4_Risk_Drivers.py", title="Risk Drivers", icon=":material/troubleshoot:")
 analytics = st.Page("pages/5_Performance_Analytics.py", title="Performance Analytics", icon=":material/bar_chart:")
 agent_ops = st.Page("pages/6_Agent_Operations.py", title="Agent Operations", icon=":material/smart_toy:")
-
+ml_pipeline = st.Page("pages/7_ML_Pipeline.py", title="ML Pipeline", icon=":material/science:")
 nav = st.navigation(
-    [overview, simulator, zone_gen, risk_drivers, agent_ops, analytics],
+    [overview, simulator, zone_gen, risk_drivers, agent_ops, analytics,ml_pipeline],
     position="hidden"
 )
 
@@ -37,5 +37,7 @@ st.sidebar.page_link(risk_drivers, label="Risk Drivers", icon=":material/trouble
 
 st.sidebar.page_link(analytics, label="Performance Analytics", icon=":material/bar_chart:")
 st.sidebar.page_link(agent_ops, label="Agent Operations", icon=":material/smart_toy:")
+st.sidebar.page_link(agent_ops, label="ML Pipeline", icon=":material/smart_toy:")
+
 
 nav.run()
