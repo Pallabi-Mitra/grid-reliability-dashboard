@@ -1,5 +1,5 @@
 # ============================================================
-# PAGE: ML PIPELINE
+# PAGE: PREDICTIVE ANALYTICS
 # Upload zone weather CSV. System auto-joins with assets.csv,
 # feature engineers, runs multiple pre-trained ML models,
 # compares predictions, forecasts forward, downloads results.
@@ -10,10 +10,9 @@
 #   Agent 3: Model Runner - scores with all pre-trained models
 #
 # Pre-trained models (trained in AllModel-checkpoint.ipynb):
-#   model.json                  - XGBoost (MAE: 0.0128, R2: 0.9956)
-#   model_lightgbm.txt          - LightGBM (MAE: 0.0085, R2: 0.9981)
-#   model_random_forest.pkl     - Random Forest (MAE: 0.0154, R2: 0.9912)
-#   model_gradient_boosting.pkl - Gradient Boosting (MAE: 0.0254, R2: 0.9830)
+#   model.json              - XGBoost (MAE: 0.0128, R2: 0.9956)
+#   model_lightgbm.txt      - LightGBM (MAE: 0.0085, R2: 0.9981)
+#   model_random_forest.pkl - Random Forest (MAE: 0.0154, R2: 0.9912)
 # ============================================================
 
 import streamlit as st
@@ -53,20 +52,14 @@ def load_all_models():
         import lightgbm as lgb
         lgb_booster = lgb.Booster(model_file="model_lightgbm.txt")
         models["LightGBM"] = {"model": lgb_booster, "mae": 0.0085, "r2": 0.9981, "type": "lgbm"}
-    except Exception as e:
-        st.warning(f"LightGBM model not found: {e}")
+    except Exception:
+        pass
 
     try:
         rf = joblib.load("model_random_forest.pkl")
         models["Random Forest"] = {"model": rf, "mae": 0.0154, "r2": 0.9912, "type": "sklearn"}
-    except Exception as e:
-        st.warning(f"Random Forest model not found: {e}")
-
-    try:
-        gbm = joblib.load("model_gradient_boosting.pkl")
-        models["Gradient Boosting"] = {"model": gbm, "mae": 0.0254, "r2": 0.9830, "type": "sklearn"}
-    except Exception as e:
-        st.warning(f"Gradient Boosting model not found: {e}")
+    except Exception:
+        pass
 
     return models
 
@@ -160,7 +153,13 @@ def feature_engineer(state: PipelineState) -> PipelineState:
         if col not in encoded.columns:
             encoded[col] = 0
 
-    return {**state, "engineered_df": merged, "X": encoded[model_features]}
+    # Preserve display columns on encoded df
+    for col in ["asset_id", "operating_region", "fuel_category",
+                "dependable_capacity_mw", "broad_asset_category"]:
+        if col in merged.columns and col not in encoded.columns:
+            encoded[col] = merged[col].values
+
+    return {**state, "engineered_df": encoded, "X": encoded[model_features]}
 
 def model_runner(state: PipelineState) -> PipelineState:
     if not state["validation_passed"]:
@@ -191,11 +190,8 @@ def model_runner(state: PipelineState) -> PipelineState:
         except Exception as e:
             results[model_name] = {"preds": None, "mae": None, "r2": None, "error": str(e)}
 
-    best = min(
-        [k for k, v in results.items() if v.get("mae") is not None],
-        key=lambda k: results[k]["mae"],
-        default="XGBoost"
-    )
+    valid = [k for k, v in results.items() if v.get("mae") is not None]
+    best = min(valid, key=lambda k: results[k]["mae"]) if valid else "XGBoost"
 
     eng_df = state["engineered_df"].copy()
     if best in results and results[best]["preds"] is not None:
@@ -222,30 +218,34 @@ def build_pipeline():
 
 pipeline = build_pipeline()
 
-st.title("⚙️ ML Pipeline")
-st.caption("Upload zone weather data. System joins generator database, engineers features, scores with pre-trained models.")
-st.markdown("---")
+# ── Page Header ──
+st.markdown("""
+<div style="background:linear-gradient(135deg,#0D1B2A,#1A3A5C);padding:2rem 2rem 1.5rem;border-radius:12px;margin-bottom:1.5rem;">
+    <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Generator Risk Intelligence</div>
+    <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Predictive Analytics</div>
+    <div style="font-size:0.9rem;color:#90A4AE;">Upload zone weather data · Multi-model comparison · 30/90/365-day forecast</div>
+</div>
+""", unsafe_allow_html=True)
 
 st.sidebar.markdown(
     "<div class='sidebar-footer'>Synthetic data for demo purposes. No real operational data used.</div>",
     unsafe_allow_html=True
 )
 
-st.markdown("### Pre-trained Models")
+# ── Model Status ──
+st.markdown("### Loaded Models")
 model_overview = pd.DataFrame([
-    {"Model": k, "MAE": v["mae"], "R²": v["r2"], "Status": "✅ Loaded"}
+    {"Model": k, "MAE": v["mae"], "R²": v["r2"], "Status": "✅ Ready"}
     for k, v in all_models.items()
 ]).sort_values("MAE")
 st.dataframe(model_overview, hide_index=True, width='stretch')
-st.caption("LightGBM is the best performer. All models trained on 36,500 rows of historical generator data.")
+st.caption("All models pre-trained on 36,500 rows · LightGBM is best performer (MAE 0.0085)")
 
 st.markdown("---")
 st.markdown("### 1. Upload Weather Data")
 
-with st.expander("What to upload"):
+with st.expander("Expected format"):
     st.markdown("""
-Upload a CSV with weather observations per zone. The system automatically joins with the full generator database.
-
 **Required columns:**
 
 | Column | Example |
@@ -300,8 +300,8 @@ if uploaded_file:
 
     st.markdown("---")
 
-    if st.button("Run Pipeline", type="primary"):
-        with st.spinner("Running 3-agent pipeline..."):
+    if st.button("Run Analysis", type="primary"):
+        with st.spinner("Running pipeline..."):
             result = pipeline.invoke(PipelineState(
                 uploaded_df=df_upload,
                 assets_df=assets_df,
@@ -318,32 +318,32 @@ if uploaded_file:
 
         report = result["validation_report"]
 
-        st.markdown("### Agent 1: Validation")
+        st.markdown("#### Validation")
         if report.get("errors"):
             for e in report["errors"]:
                 st.error(e)
             st.stop()
-        st.success(f"Passed. {report['rows']:,} rows. Zones: {report['zones_found']}")
+        st.success(f"Passed · {report['rows']:,} rows · Zones: {report['zones_found']}")
         for w in report.get("warnings", []):
             st.warning(w)
 
-        st.markdown("### Agent 2: Feature Engineering")
-        st.success(f"Joined with {len(assets_df)} generators. Built {len(model_features)} features.")
+        st.markdown("#### Feature Engineering")
+        st.success(f"Joined {len(assets_df)} generators · Built {len(model_features)} features")
 
-        st.markdown("### Agent 3: Model Comparison")
         model_results = result["model_results"]
         best_model = result["best_model_name"]
 
+        st.markdown("#### Model Comparison")
         comp_rows = []
         for mname, mdata in model_results.items():
             if mdata.get("preds") is not None:
                 comp_rows.append({
                     "Model": mname,
-                    "MAE (training)": mdata["mae"],
-                    "R² (training)": mdata["r2"],
-                    "Best": "✅" if mname == best_model else ""
+                    "MAE": mdata["mae"],
+                    "R²": mdata["r2"],
+                    "Selected": "✅" if mname == best_model else ""
                 })
-        comp_df = pd.DataFrame(comp_rows).sort_values("MAE (training)")
+        comp_df = pd.DataFrame(comp_rows).sort_values("MAE")
         st.dataframe(comp_df, hide_index=True, width='stretch')
         st.success(f"Best model: **{best_model}**")
 
@@ -352,7 +352,7 @@ if uploaded_file:
             fig_comp.add_trace(go.Bar(
                 name=row["Model"],
                 x=["MAE", "1 - R²"],
-                y=[row["MAE (training)"], round(1 - row["R² (training)"], 4)],
+                y=[row["MAE"], round(1 - row["R²"], 4)],
             ))
         fig_comp.update_layout(
             barmode="group",
@@ -360,7 +360,7 @@ if uploaded_file:
             paper_bgcolor="#0D1B2A",
             plot_bgcolor="#0D1B2A",
             font=dict(color="#E2E8F0"),
-            height=350
+            height=320
         )
         st.plotly_chart(fig_comp, width='stretch')
 
@@ -368,7 +368,7 @@ if uploaded_file:
 
         if preds_df is not None and "predicted_impact_ratio" in preds_df.columns:
 
-            st.markdown("### Generator Predictions")
+            st.markdown("#### Generator Predictions")
             display_cols = [c for c in [
                 "asset_id", "operating_region", "fuel_category",
                 "dependable_capacity_mw", "predicted_impact_ratio",
@@ -379,7 +379,7 @@ if uploaded_file:
                 hide_index=True, width='stretch'
             )
 
-            st.markdown("### Zone Risk Summary")
+            st.markdown("#### Zone Risk Summary")
             zone_sum = preds_df.groupby("operating_region").agg(
                 total_mw=("dependable_capacity_mw", "sum"),
                 predicted_mw_at_risk=("predicted_impacted_mw", "sum"),
@@ -412,12 +412,12 @@ if uploaded_file:
                 paper_bgcolor="#0D1B2A",
                 plot_bgcolor="#0D1B2A",
                 font=dict(color="#E2E8F0"),
-                height=400
+                height=380
             )
             st.plotly_chart(fig_zone, width='stretch')
 
             if len([k for k, v in model_results.items() if v.get("preds") is not None]) > 1:
-                st.markdown("### All Models: Risk % by Zone")
+                st.markdown("#### All Models: Zone Comparison")
                 zone_comp_data = []
                 for mname, mdata in model_results.items():
                     if mdata.get("preds") is not None:
@@ -445,12 +445,12 @@ if uploaded_file:
                         paper_bgcolor="#0D1B2A",
                         plot_bgcolor="#0D1B2A",
                         font=dict(color="#E2E8F0"),
-                        height=400
+                        height=380
                     )
                     st.plotly_chart(fig_multi, width='stretch')
 
-            st.markdown(f"### {horizon_label} Forecast")
-            st.caption("Using quantile forecasters (p05/p50/p95)")
+            st.markdown(f"#### {horizon_label} Risk Forecast")
+            st.caption("Quantile forecasters: p05 best case · p50 median · p95 worst case")
             try:
                 from shared import load_forecaster_models
                 forecasters = load_forecaster_models()
@@ -497,7 +497,7 @@ if uploaded_file:
                     name="p50 median"
                 ))
                 fig_fc.update_layout(
-                    title=f"Capacity-Weighted Risk Forecast ({horizon_label})",
+                    title=f"Capacity-Weighted Impact Ratio Forecast ({horizon_label})",
                     xaxis_title="Date",
                     yaxis_title="Impact Ratio",
                     paper_bgcolor="#0D1B2A",
@@ -510,7 +510,7 @@ if uploaded_file:
             except Exception as e:
                 st.warning(f"Forecast skipped: {e}")
 
-            st.markdown("### Download Results")
+            st.markdown("#### Download Results")
             out_buf = io.StringIO()
             preds_df[display_cols].to_csv(out_buf, index=False)
             st.download_button(
@@ -529,13 +529,13 @@ if uploaded_file:
             )
 
 else:
-    st.info("Upload a weather CSV to start the pipeline.")
+    st.info("Upload a weather CSV to start the analysis.")
     st.markdown("""
-**How it works:**
+**3-agent pipeline:**
 
-1. **Validator Agent** checks zones, columns, nulls
-2. **Feature Engineer Agent** joins your weather data with the full generator database automatically
-3. **Model Runner Agent** scores with all 4 pre-trained models and compares predictions
+1. **Validator** — checks zones, columns, null values
+2. **Feature Engineer** — joins with full generator database, builds 53 features
+3. **Model Runner** — scores with XGBoost, LightGBM, Random Forest in parallel
 
-You only need `date`, `operating_region`, and `temp_avg`.
+Only `date`, `operating_region`, and `temp_avg` are required.
 """)
