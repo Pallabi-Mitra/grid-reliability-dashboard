@@ -14,7 +14,6 @@
 import streamlit as st
 import pandas as pd
 import os
-import shap
 import sys
 import asyncio
 from shared import (
@@ -26,35 +25,32 @@ from agents_utils import (
     validate_diagnosis_output,
     validate_reporter_output
 )
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools import tool as lc_tool
 
 load_css("styles.css")
 
 assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_latest_predictions()
 
+# --- MCP TOOLS (imported directly, no subprocess/stdio needed on Cloud) ---
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from mcp_server import get_zone_risk, get_generator_predictions, list_all_zones
 
-@st.cache_resource
-def get_shap_explainer(_model):
-    return shap.TreeExplainer(_model)
+@lc_tool
+def tool_get_zone_risk(zone: str) -> str:
+    """Get the current risk level and predicted MW at risk for a zone."""
+    return get_zone_risk(zone)
 
+@lc_tool
+def tool_get_generator_predictions(zone: str) -> str:
+    """Get top generators by predicted risk in a zone."""
+    return get_generator_predictions(zone)
 
-MCP_CONFIG = {
-    "grid_reliability": {
-        "command": sys.executable,
-        "args": ["mcp_server.py"],
-        "transport": "stdio",
-        "cwd": os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    }
-}
+@lc_tool
+def tool_list_all_zones() -> str:
+    """List all 11 NY load zones with their current risk levels."""
+    return list_all_zones()
 
-
-@st.cache_resource
-def get_mcp_tools():
-    async def _load():
-        client = MultiServerMCPClient(MCP_CONFIG)
-        return await client.get_tools()
-    return asyncio.run(_load())
-
+mcp_tools = [tool_get_zone_risk, tool_get_generator_predictions, tool_list_all_zones]
 
 st.sidebar.markdown(
     "<div class='sidebar-footer'>Synthetic data for demo purposes. No real operational data used.</div>",
@@ -93,7 +89,6 @@ else:
         from knowledge_base import retrieve_relevant_knowledge
 
         llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, api_key=groq_key)
-        mcp_tools = get_mcp_tools()
 
         class ReliabilityState(TypedDict):
             messages: Annotated[list, add_messages]
@@ -158,9 +153,8 @@ else:
                 if col not in asset_enc.columns:
                     asset_enc[col] = 0
 
-            explainer = get_shap_explainer(model)
-            shap_vals = explainer.shap_values(asset_enc[model_features])
-            shap_series = pd.Series(shap_vals[0], index=model_features).abs().sort_values(ascending=False)
+            importance_scores = model.get_booster().get_score(importance_type="gain")
+            shap_series = pd.Series(importance_scores).reindex(model_features).fillna(0).abs().sort_values(ascending=False)
             feature_str = ", ".join([
                 f"{k.replace('_', ' ')} ({v:.3f})"
                 for k, v in shap_series.head(5).items()
@@ -175,9 +169,9 @@ else:
                     f"Monitor reported: {monitor_summary}\n"
                     f"Highest-risk generator: {top_asset['asset_id']} "
                     f"({top_asset['fuel_category']}, {top_asset['dependable_capacity_mw']:.1f} MW).\n"
-                    f"Top SHAP risk drivers: {feature_str}.\n\n"
+                    f"Top risk drivers: {feature_str}.\n\n"
                     f"Relevant operational guidance:\n{retrieved_knowledge}\n\n"
-                    f"Using the SHAP drivers AND the operational guidance above, explain the likely "
+                    f"Using the risk drivers AND the operational guidance above, explain the likely "
                     f"root cause in 2-3 sentences. Ground your explanation in the retrieved guidance "
                     f"where it applies, rather than general assumptions."
                 ))
@@ -185,7 +179,7 @@ else:
             except Exception:
                 diagnosis_text = (
                     f"Diagnosis unavailable after multiple attempts. "
-                    f"Top SHAP drivers for {top_asset['asset_id']}: {feature_str}. "
+                    f"Top risk drivers for {top_asset['asset_id']}: {feature_str}. "
                     f"Manual review recommended."
                 )
 
@@ -193,7 +187,7 @@ else:
             if not is_valid:
                 diagnosis_text = (
                     f"Diagnosis output was insufficient ({reason}). "
-                    f"Raw SHAP drivers: {feature_str}."
+                    f"Raw risk drivers: {feature_str}."
                 )
 
             return {"messages": [diagnosis_text], "diagnosis": diagnosis_text}
@@ -309,7 +303,7 @@ else:
         if diagnosis_out:
             st.markdown(f"""
             <div class="app-card">
-            <p class="app-card-label diagnosis">DIAGNOSIS AGENT (SHAP + RAG)</p>
+            <p class="app-card-label diagnosis">DIAGNOSIS AGENT (RAG + Feature Importance)</p>
             <p class="app-card-body">{diagnosis_out}</p>
             </div>
             """, unsafe_allow_html=True)

@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 from xgboost import XGBRegressor
-import shap
 from mcp.server.fastmcp import FastMCP
 
 # ── Load model and data once at startup ──
@@ -99,36 +98,8 @@ def get_shap_explanation(asset_id: str) -> str:
     received its predicted risk level. Takes an asset ID like AST-023.
     Returns the top 5 risk drivers with their SHAP contribution values.
     """
-    asset_id = asset_id.upper().strip()
-    asset_rows = latest_df[latest_df["asset_id"] == asset_id]
-    if asset_rows.empty:
-        return f"Asset {asset_id} not found."
-
-    asset_encoded = pd.get_dummies(asset_rows, columns=categorical_cols)
-    for col in model_features:
-        if col not in asset_encoded.columns:
-            asset_encoded[col] = 0
-
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(asset_encoded[model_features])
-    shap_series = pd.Series(
-        shap_values[0], index=model_features
-    ).abs().sort_values(ascending=False)
-    top5 = shap_series.head(5)
-
-    asset_info = asset_rows.iloc[0]
-    lines = [
-        f"SHAP Explanation for {asset_id} "
-        f"({asset_info['fuel_category']}, Zone {asset_info['operating_region']}):",
-        f"Predicted Impact Ratio: {asset_info['predicted_impact_ratio']:.3f}",
-        f"Predicted MW at Risk: {asset_info['predicted_impacted_mw']:.1f} MW",
-        f"\nTop 5 risk drivers (by SHAP importance):"
-    ]
-    for feature, importance in top5.items():
-        val = asset_encoded[feature].values[0] if feature in asset_encoded.columns else 0
-        lines.append(f"  - {feature.replace('_', ' ')}: importance {importance:.4f}, value {val:.3f}")
-
-    return "\n".join(lines)
+    importance_scores = model.get_booster().get_score(importance_type="gain")
+    shap_series = pd.Series(importance_scores).reindex(model_features).fillna(0).abs().sort_values(ascending=False)
 
 @mcp.tool()
 def list_all_zones() -> str:
