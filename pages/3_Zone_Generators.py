@@ -8,7 +8,7 @@
 import streamlit as st
 import pandas as pd
 from shared import (
-    load_css, get_latest_predictions, zone_names, categorical_cols
+    load_css, get_live_weather_predictions, zone_names, categorical_cols
 )
 
 # --- PAGE CONFIG ---
@@ -16,7 +16,7 @@ from shared import (
 load_css("styles.css")
 
 # --- LOAD DATA / MODEL / PREDICTIONS ---
-assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_latest_predictions()
+assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
 
 # --- SIDEBAR: FOOTER ---
 st.sidebar.markdown(

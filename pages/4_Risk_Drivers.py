@@ -9,10 +9,7 @@
 import streamlit as st
 import pandas as pd
 import shap
-from shared import (
-    load_css, get_latest_predictions, zone_names, categorical_cols
-)
-
+assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
 # --- PAGE CONFIG ---
 
 load_css("styles.css")
