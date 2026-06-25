@@ -1,27 +1,30 @@
 # ============================================================
 # PAGE: ML PIPELINE
 # Upload zone weather CSV. System auto-joins with assets.csv,
-# feature engineers, runs multiple ML models, compares results,
-# forecasts forward, downloads for operations team.
+# feature engineers, runs multiple pre-trained ML models,
+# compares predictions, forecasts forward, downloads results.
 #
 # Three agents (pure Python, LangGraph):
 #   Agent 1: Data Validator - checks uploaded CSV
 #   Agent 2: Feature Engineer - joins assets, engineers features
-#   Agent 3: Model Runner - runs all models, ranks by MAE/R2
+#   Agent 3: Model Runner - scores with all pre-trained models
+#
+# Pre-trained models (trained in AllModel-checkpoint.ipynb):
+#   model.json                  - XGBoost (MAE: 0.0128, R2: 0.9956)
+#   model_lightgbm.txt          - LightGBM (MAE: 0.0085, R2: 0.9981)
+#   model_random_forest.pkl     - Random Forest (MAE: 0.0154, R2: 0.9912)
+#   model_gradient_boosting.pkl - Gradient Boosting (MAE: 0.0254, R2: 0.9830)
 # ============================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import io
-import asyncio
+import joblib
 from datetime import datetime, timedelta
 from typing import TypedDict
 from xgboost import XGBRegressor, Booster
 import xgboost as xgb
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import train_test_split
 from langgraph.graph import StateGraph, END
 import plotly.graph_objects as go
 import plotly.express as px
@@ -29,29 +32,48 @@ from shared import load_css, zone_names
 
 load_css("styles.css")
 
-# ── Constants ──
 categorical_cols = ["season", "fuel_category", "broad_asset_category", "operating_region"]
-EXCLUDE_COLS = ["date", "asset_id", "impact_ratio", "date_str"]
 
-# ── Load assets once ──
 @st.cache_data
 def load_assets():
     return pd.read_csv("assets.csv")
 
 @st.cache_resource
-def load_base_model():
+def load_all_models():
+    models = {}
+
     _booster = Booster()
     _booster.load_model("model.json")
     m = XGBRegressor()
     m._Booster = _booster
     m._estimator_type = "regressor"
-    return m
+    models["XGBoost"] = {"model": m, "mae": 0.0128, "r2": 0.9956, "type": "xgb"}
+
+    try:
+        import lightgbm as lgb
+        lgb_booster = lgb.Booster(model_file="model_lightgbm.txt")
+        models["LightGBM"] = {"model": lgb_booster, "mae": 0.0085, "r2": 0.9981, "type": "lgbm"}
+    except Exception as e:
+        st.warning(f"LightGBM model not found: {e}")
+
+    try:
+        rf = joblib.load("model_random_forest.pkl")
+        models["Random Forest"] = {"model": rf, "mae": 0.0154, "r2": 0.9912, "type": "sklearn"}
+    except Exception as e:
+        st.warning(f"Random Forest model not found: {e}")
+
+    try:
+        gbm = joblib.load("model_gradient_boosting.pkl")
+        models["Gradient Boosting"] = {"model": gbm, "mae": 0.0254, "r2": 0.9830, "type": "sklearn"}
+    except Exception as e:
+        st.warning(f"Gradient Boosting model not found: {e}")
+
+    return models
 
 assets_df = load_assets()
-base_model = load_base_model()
-model_features = base_model.get_booster().feature_names
+all_models = load_all_models()
+model_features = all_models["XGBoost"]["model"].get_booster().feature_names
 
-# ── Pipeline State ──
 class PipelineState(TypedDict):
     uploaded_df: object
     assets_df: object
@@ -59,21 +81,17 @@ class PipelineState(TypedDict):
     validation_passed: bool
     engineered_df: object
     X: object
-    y: object
-    has_labels: bool
     selected_models: list
     model_results: dict
     best_model_name: str
     predictions_df: object
     error: str
 
-# ── Agent 1: Data Validator ──
 def data_validator(state: PipelineState) -> PipelineState:
     df = state["uploaded_df"]
     report = {"errors": [], "warnings": [], "rows": len(df), "zones_found": []}
 
-    required_cols = ["date", "operating_region", "temp_avg"]
-    for col in required_cols:
+    for col in ["date", "operating_region", "temp_avg"]:
         if col not in df.columns:
             report["errors"].append(f"Missing required column: `{col}`")
 
@@ -82,31 +100,25 @@ def data_validator(state: PipelineState) -> PipelineState:
 
     valid_zones = assets_df["operating_region"].unique().tolist()
     uploaded_zones = df["operating_region"].unique().tolist()
-    unknown_zones = [z for z in uploaded_zones if z not in valid_zones]
-    if unknown_zones:
-        report["errors"].append(f"Unknown zones: {unknown_zones}. Valid zones: {valid_zones}")
+    unknown = [z for z in uploaded_zones if z not in valid_zones]
+    if unknown:
+        report["errors"].append(f"Unknown zones: {unknown}. Valid zones: {valid_zones}")
 
     report["zones_found"] = [z for z in uploaded_zones if z in valid_zones]
 
     if df["temp_avg"].isnull().any():
-        report["warnings"].append("Some temp_avg values are null. Will be filled with zone mean.")
-
+        report["warnings"].append("Some temp_avg values are null. Will fill with zone mean.")
     if "temp_min" not in df.columns:
-        report["warnings"].append("temp_min not found. Will be estimated as temp_avg - 8.")
+        report["warnings"].append("temp_min missing. Will estimate as temp_avg - 8.")
     if "temp_max" not in df.columns:
-        report["warnings"].append("temp_max not found. Will be estimated as temp_avg + 8.")
+        report["warnings"].append("temp_max missing. Will estimate as temp_avg + 8.")
 
-    if "impact_ratio" in df.columns:
-        report["has_labels"] = True
-        report["warnings"].append("impact_ratio found. Model comparison enabled.")
-    else:
-        report["has_labels"] = False
+    return {
+        **state,
+        "validation_report": report,
+        "validation_passed": len(report["errors"]) == 0
+    }
 
-    passed = len(report["errors"]) == 0
-    return {**state, "validation_report": report, "validation_passed": passed,
-            "has_labels": report.get("has_labels", False)}
-
-# ── Agent 2: Feature Engineer ──
 def feature_engineer(state: PipelineState) -> PipelineState:
     if not state["validation_passed"]:
         return state
@@ -135,109 +147,59 @@ def feature_engineer(state: PipelineState) -> PipelineState:
     merged["cold_day_flag"] = (merged["temp_avg"] < 20).astype(int)
     merged["hot_day_flag"] = (merged["temp_avg"] > 85).astype(int)
 
-    if "season" not in merged.columns:
-        def get_season(month):
-            if month in [12, 1, 2]: return "Winter"
-            elif month in [3, 4, 5]: return "Spring"
-            elif month in [6, 7, 8]: return "Summer"
+    if "season" not in merged.columns and "month" in merged.columns:
+        def get_season(m):
+            if m in [12, 1, 2]: return "Winter"
+            elif m in [3, 4, 5]: return "Spring"
+            elif m in [6, 7, 8]: return "Summer"
             else: return "Fall"
-        if "month" in merged.columns:
-            merged["season"] = merged["month"].apply(get_season)
+        merged["season"] = merged["month"].apply(get_season)
 
     encoded = pd.get_dummies(merged, columns=categorical_cols)
     for col in model_features:
         if col not in encoded.columns:
             encoded[col] = 0
 
-    y = None
-    has_labels = state.get("has_labels", False)
-    if has_labels and "impact_ratio" in encoded.columns:
-        y = encoded["impact_ratio"]
+    return {**state, "engineered_df": merged, "X": encoded[model_features]}
 
-    return {**state, "engineered_df": merged, "X": encoded[model_features], "y": y}
-
-# ── Agent 3: Model Runner ──
 def model_runner(state: PipelineState) -> PipelineState:
     if not state["validation_passed"]:
         return state
 
     X = state["X"]
-    y = state["y"]
-    has_labels = state.get("has_labels", False)
     selected = state["selected_models"]
     results = {}
 
     for model_name in selected:
+        if model_name not in all_models:
+            continue
+        entry = all_models[model_name]
+        m = entry["model"]
+        mtype = entry["type"]
         try:
-            if model_name == "XGBoost (existing)":
-                preds = base_model._Booster.predict(xgb.DMatrix(X))
-                results[model_name] = {"preds": preds, "mae": None, "r2": None}
-
-            elif model_name == "XGBoost (retrained)" and has_labels:
-                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                m = XGBRegressor(n_estimators=200, max_depth=5, learning_rate=0.05,
-                                 subsample=0.8, colsample_bytree=0.8, random_state=42,
-                                 objective="reg:squarederror")
-                m.fit(X_tr, y_tr)
+            if mtype == "xgb":
+                preds = m._Booster.predict(xgb.DMatrix(X))
+            elif mtype == "lgbm":
                 preds = m.predict(X)
-                te_preds = m.predict(X_te)
-                results[model_name] = {
-                    "preds": preds,
-                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
-                    "r2": round(r2_score(y_te, te_preds), 4)
-                }
-
-            elif model_name == "LightGBM" and has_labels:
-                import lightgbm as lgb
-                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                m = lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05,
-                                       num_leaves=31, random_state=42, verbose=-1)
-                m.fit(X_tr, y_tr)
+            else:
                 preds = m.predict(X)
-                te_preds = m.predict(X_te)
-                results[model_name] = {
-                    "preds": preds,
-                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
-                    "r2": round(r2_score(y_te, te_preds), 4)
-                }
-
-            elif model_name == "Random Forest" and has_labels:
-                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                m = RandomForestRegressor(n_estimators=100, max_depth=10,
-                                          random_state=42, n_jobs=-1)
-                m.fit(X_tr, y_tr)
-                preds = m.predict(X)
-                te_preds = m.predict(X_te)
-                results[model_name] = {
-                    "preds": preds,
-                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
-                    "r2": round(r2_score(y_te, te_preds), 4)
-                }
-
-            elif model_name == "Gradient Boosting" and has_labels:
-                X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-                m = GradientBoostingRegressor(n_estimators=100, max_depth=4,
-                                               learning_rate=0.05, random_state=42)
-                m.fit(X_tr, y_tr)
-                preds = m.predict(X)
-                te_preds = m.predict(X_te)
-                results[model_name] = {
-                    "preds": preds,
-                    "mae": round(mean_absolute_error(y_te, te_preds), 4),
-                    "r2": round(r2_score(y_te, te_preds), 4)
-                }
+            results[model_name] = {
+                "preds": np.clip(preds, 0, 1),
+                "mae": entry["mae"],
+                "r2": entry["r2"]
+            }
         except Exception as e:
             results[model_name] = {"preds": None, "mae": None, "r2": None, "error": str(e)}
 
-    labeled_results = {k: v for k, v in results.items() if v.get("mae") is not None}
-    if labeled_results:
-        best = min(labeled_results, key=lambda k: labeled_results[k]["mae"])
-    else:
-        best = "XGBoost (existing)"
+    best = min(
+        [k for k, v in results.items() if v.get("mae") is not None],
+        key=lambda k: results[k]["mae"],
+        default="XGBoost"
+    )
 
     eng_df = state["engineered_df"].copy()
     if best in results and results[best]["preds"] is not None:
-        eng_df["predicted_impact_ratio"] = np.clip(results[best]["preds"], 0, 1)
+        eng_df["predicted_impact_ratio"] = results[best]["preds"]
         eng_df["predicted_impacted_mw"] = (
             eng_df["predicted_impact_ratio"] * eng_df["dependable_capacity_mw"]
         )
@@ -245,10 +207,8 @@ def model_runner(state: PipelineState) -> PipelineState:
             lambda x: "🔴 HIGH" if x > 0.65 else ("🟡 MODERATE" if x > 0.45 else "🟢 LOW")
         )
 
-    return {**state, "model_results": results, "best_model_name": best,
-            "predictions_df": eng_df}
+    return {**state, "model_results": results, "best_model_name": best, "predictions_df": eng_df}
 
-# ── Build LangGraph Pipeline ──
 def build_pipeline():
     graph = StateGraph(PipelineState)
     graph.add_node("validator", data_validator)
@@ -262,9 +222,8 @@ def build_pipeline():
 
 pipeline = build_pipeline()
 
-# ── Page UI ──
 st.title("⚙️ ML Pipeline")
-st.caption("Upload zone weather data. System joins generator data, engineers features, runs ML models, forecasts risk.")
+st.caption("Upload zone weather data. System joins generator database, engineers features, scores with pre-trained models.")
 st.markdown("---")
 
 st.sidebar.markdown(
@@ -272,11 +231,20 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
+st.markdown("### Pre-trained Models")
+model_overview = pd.DataFrame([
+    {"Model": k, "MAE": v["mae"], "R²": v["r2"], "Status": "✅ Loaded"}
+    for k, v in all_models.items()
+]).sort_values("MAE")
+st.dataframe(model_overview, hide_index=True, width='stretch')
+st.caption("LightGBM is the best performer. All models trained on 36,500 rows of historical generator data.")
+
+st.markdown("---")
 st.markdown("### 1. Upload Weather Data")
 
 with st.expander("What to upload"):
     st.markdown("""
-Upload a CSV with weather observations per zone. The system automatically joins with the generator database.
+Upload a CSV with weather observations per zone. The system automatically joins with the full generator database.
 
 **Required columns:**
 
@@ -286,13 +254,7 @@ Upload a CSV with weather observations per zone. The system automatically joins 
 | `operating_region` | A |
 | `temp_avg` | 88 |
 
-**Optional columns:**
-
-| Column | Example |
-|---|---|
-| `temp_min` | 75 |
-| `temp_max` | 95 |
-| `impact_ratio` | 0.62 (enables model comparison) |
+**Optional:** `temp_min`, `temp_max`
 
 **Valid zones:** A B C D E F G H I J K
 """)
@@ -306,8 +268,10 @@ Upload a CSV with weather observations per zone. The system automatically joins 
     st.dataframe(sample, hide_index=True)
     buf = io.StringIO()
     sample.to_csv(buf, index=False)
-    st.download_button("Download sample CSV", buf.getvalue(),
-                       file_name="sample_weather.csv", mime="text/csv")
+    st.download_button(
+        "Download sample CSV", buf.getvalue(),
+        file_name="sample_weather.csv", mime="text/csv"
+    )
 
 uploaded_file = st.file_uploader("Upload weather CSV", type=["csv"])
 
@@ -321,18 +285,10 @@ if uploaded_file:
     st.success(f"Loaded {len(df_upload):,} rows.")
 
     st.markdown("### 2. Select Models")
-    has_labels_preview = "impact_ratio" in df_upload.columns
-
-    model_options = ["XGBoost (existing)"]
-    if has_labels_preview:
-        model_options += ["XGBoost (retrained)", "LightGBM", "Random Forest", "Gradient Boosting"]
-    else:
-        st.info("Add `impact_ratio` column to your CSV to unlock model comparison and retraining.")
-
     selected_models = st.multiselect(
         "Models to run:",
-        options=model_options,
-        default=model_options[:3] if len(model_options) >= 3 else model_options
+        options=list(all_models.keys()),
+        default=list(all_models.keys())
     )
 
     st.markdown("### 3. Forecast Horizon")
@@ -346,73 +302,67 @@ if uploaded_file:
 
     if st.button("Run Pipeline", type="primary"):
         with st.spinner("Running 3-agent pipeline..."):
-            initial_state = PipelineState(
+            result = pipeline.invoke(PipelineState(
                 uploaded_df=df_upload,
                 assets_df=assets_df,
                 validation_report={},
                 validation_passed=False,
                 engineered_df=None,
                 X=None,
-                y=None,
-                has_labels=has_labels_preview,
                 selected_models=selected_models,
                 model_results={},
                 best_model_name="",
                 predictions_df=None,
                 error=""
-            )
-            result = pipeline.invoke(initial_state)
+            ))
 
         report = result["validation_report"]
 
-        st.markdown("### Agent 1: Validation Report")
+        st.markdown("### Agent 1: Validation")
         if report.get("errors"):
             for e in report["errors"]:
                 st.error(e)
             st.stop()
-        else:
-            st.success(f"Validation passed. {report['rows']:,} rows. Zones: {report['zones_found']}")
+        st.success(f"Passed. {report['rows']:,} rows. Zones: {report['zones_found']}")
         for w in report.get("warnings", []):
             st.warning(w)
 
         st.markdown("### Agent 2: Feature Engineering")
         st.success(f"Joined with {len(assets_df)} generators. Built {len(model_features)} features.")
 
-        st.markdown("### Agent 3: Model Results")
-
+        st.markdown("### Agent 3: Model Comparison")
         model_results = result["model_results"]
         best_model = result["best_model_name"]
 
-        labeled = {k: v for k, v in model_results.items() if v.get("mae") is not None}
-        if labeled:
-            comp_rows = []
-            for mname, mdata in labeled.items():
+        comp_rows = []
+        for mname, mdata in model_results.items():
+            if mdata.get("preds") is not None:
                 comp_rows.append({
                     "Model": mname,
-                    "MAE": mdata["mae"],
-                    "R²": mdata["r2"],
+                    "MAE (training)": mdata["mae"],
+                    "R² (training)": mdata["r2"],
                     "Best": "✅" if mname == best_model else ""
                 })
-            comp_df = pd.DataFrame(comp_rows).sort_values("MAE")
-            st.dataframe(comp_df, hide_index=True, width='stretch')
-            st.success(f"Best model: **{best_model}**")
+        comp_df = pd.DataFrame(comp_rows).sort_values("MAE (training)")
+        st.dataframe(comp_df, hide_index=True, width='stretch')
+        st.success(f"Best model: **{best_model}**")
 
-            fig_comp = go.Figure()
-            for row in comp_rows:
-                fig_comp.add_trace(go.Bar(
-                    name=row["Model"],
-                    x=["MAE", "1 - R²"],
-                    y=[row["MAE"], 1 - row["R²"]],
-                ))
-            fig_comp.update_layout(
-                barmode="group",
-                title="Model Comparison (lower is better)",
-                paper_bgcolor="#0D1B2A",
-                plot_bgcolor="#0D1B2A",
-                font=dict(color="#E2E8F0"),
-                height=350
-            )
-            st.plotly_chart(fig_comp, width='stretch')
+        fig_comp = go.Figure()
+        for row in comp_rows:
+            fig_comp.add_trace(go.Bar(
+                name=row["Model"],
+                x=["MAE", "1 - R²"],
+                y=[row["MAE (training)"], round(1 - row["R² (training)"], 4)],
+            ))
+        fig_comp.update_layout(
+            barmode="group",
+            title="Model Comparison (lower is better)",
+            paper_bgcolor="#0D1B2A",
+            plot_bgcolor="#0D1B2A",
+            font=dict(color="#E2E8F0"),
+            height=350
+        )
+        st.plotly_chart(fig_comp, width='stretch')
 
         preds_df = result["predictions_df"]
 
@@ -438,10 +388,9 @@ if uploaded_file:
             zone_sum["risk_pct"] = (zone_sum["predicted_mw_at_risk"] / zone_sum["total_mw"]) * 100
             zone_sum["zone_name"] = zone_sum["operating_region"].map(zone_names)
 
-            fig_zone = go.Figure()
             colors = ["#DC2626" if r > 65 else "#D97706" if r > 45 else "#16A34A"
                       for r in zone_sum["risk_pct"]]
-            fig_zone.add_trace(go.Bar(
+            fig_zone = go.Figure(go.Bar(
                 x=zone_sum["operating_region"],
                 y=zone_sum["risk_pct"],
                 marker_color=colors,
@@ -467,13 +416,13 @@ if uploaded_file:
             )
             st.plotly_chart(fig_zone, width='stretch')
 
-            if len(labeled) > 1:
-                st.markdown("### Model Prediction Comparison by Zone")
+            if len([k for k, v in model_results.items() if v.get("preds") is not None]) > 1:
+                st.markdown("### All Models: Risk % by Zone")
                 zone_comp_data = []
                 for mname, mdata in model_results.items():
                     if mdata.get("preds") is not None:
                         tmp = preds_df[["operating_region", "dependable_capacity_mw"]].copy()
-                        tmp["pred"] = np.clip(mdata["preds"], 0, 1)
+                        tmp["pred"] = mdata["preds"]
                         tmp["pred_mw"] = tmp["pred"] * tmp["dependable_capacity_mw"]
                         z = tmp.groupby("operating_region").agg(
                             total_mw=("dependable_capacity_mw", "sum"),
@@ -488,7 +437,7 @@ if uploaded_file:
                     fig_multi = px.bar(
                         comp_all, x="operating_region", y="risk_pct",
                         color="model", barmode="group",
-                        title="Risk % per Zone by Model",
+                        title="Risk % per Zone — All Models",
                         labels={"operating_region": "Zone", "risk_pct": "Risk %", "model": "Model"},
                         color_discrete_sequence=px.colors.qualitative.Set2
                     )
@@ -501,15 +450,15 @@ if uploaded_file:
                     st.plotly_chart(fig_multi, width='stretch')
 
             st.markdown(f"### {horizon_label} Forecast")
-            st.caption("Using existing XGBoost quantile forecasters (p05/p50/p95)")
-
+            st.caption("Using quantile forecasters (p05/p50/p95)")
             try:
                 from shared import load_forecaster_models
                 forecasters = load_forecaster_models()
                 forecast_rows = []
                 base_date = datetime.now()
+                days_to_run = min(horizon_days, 90)
 
-                for day_offset in range(1, min(horizon_days, 90) + 1):
+                for day_offset in range(1, days_to_run + 1):
                     forecast_date = (base_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
                     day_df = preds_df.copy()
                     if "days_since_last_event" in day_df.columns:
@@ -532,20 +481,20 @@ if uploaded_file:
                     x=fc_df["date"], y=fc_df["p95"],
                     fill=None, mode="lines",
                     line=dict(color="#DC2626", width=0),
-                    name="p95 (worst case)"
+                    name="p95 worst case"
                 ))
                 fig_fc.add_trace(go.Scatter(
                     x=fc_df["date"], y=fc_df["p05"],
                     fill="tonexty", mode="lines",
                     line=dict(color="#16A34A", width=0),
                     fillcolor="rgba(220,38,38,0.15)",
-                    name="p05 (best case)"
+                    name="p05 best case"
                 ))
                 fig_fc.add_trace(go.Scatter(
                     x=fc_df["date"], y=fc_df["p50"],
                     mode="lines",
                     line=dict(color="#F59E0B", width=2),
-                    name="p50 (median)"
+                    name="p50 median"
                 ))
                 fig_fc.update_layout(
                     title=f"Capacity-Weighted Risk Forecast ({horizon_label})",
@@ -570,25 +519,23 @@ if uploaded_file:
                 file_name=f"predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                 mime="text/csv"
             )
-
-            if labeled:
-                comp_buf = io.StringIO()
-                comp_df.to_csv(comp_buf, index=False)
-                st.download_button(
-                    "Download Model Comparison CSV",
-                    comp_buf.getvalue(),
-                    file_name=f"model_comparison_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                    mime="text/csv"
-                )
+            comp_buf = io.StringIO()
+            comp_df.to_csv(comp_buf, index=False)
+            st.download_button(
+                "Download Model Comparison CSV",
+                comp_buf.getvalue(),
+                file_name=f"model_comparison_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv"
+            )
 
 else:
     st.info("Upload a weather CSV to start the pipeline.")
     st.markdown("""
-**How the 3-agent pipeline works:**
+**How it works:**
 
-1. **Validator Agent** checks zones, columns, null values
+1. **Validator Agent** checks zones, columns, nulls
 2. **Feature Engineer Agent** joins your weather data with the full generator database automatically
-3. **Model Runner Agent** trains and compares XGBoost, LightGBM, Random Forest, Gradient Boosting
+3. **Model Runner Agent** scores with all 4 pre-trained models and compares predictions
 
 You only need `date`, `operating_region`, and `temp_avg`.
 """)
