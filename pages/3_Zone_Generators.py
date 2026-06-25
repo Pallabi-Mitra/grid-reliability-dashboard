@@ -66,5 +66,5 @@ display_cols = ["asset_id", "fuel_category", "broad_asset_category",
 
 st.dataframe(
     zone_generators[display_cols].sort_values("predicted_impact_ratio", ascending=False).round(3),
-    use_container_width=True
+    width='stretch'
 )

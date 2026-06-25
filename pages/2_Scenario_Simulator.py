@@ -83,4 +83,4 @@ s3.metric(
 # --- SIMULATED MAP ---
 # Reuses build_map() from shared.py, same function as Overview,
 # just fed the simulated summary instead of the live one.
-st.plotly_chart(build_map(sim_zone_summary, f"Simulated Zone Risk at {temp_override}°F"), use_container_width=True)
+st.plotly_chart(build_map(sim_zone_summary, f"Simulated Zone Risk at {temp_override}°F"), width='stretch')

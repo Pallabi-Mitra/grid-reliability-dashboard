@@ -95,7 +95,7 @@ with col_left:
     if zone_weather:
         weather_df = pd.DataFrame(zone_weather)[["zone", "location", "temperature", "short_forecast"]]
         weather_df.columns = ["Zone", "Location", "°F", "Conditions"]
-        st.dataframe(weather_df, use_container_width=True, hide_index=True, height=370)
+        st.dataframe(weather_df, width='stretch', hide_index=True, height=370)
     else:
         st.info("Weather data unavailable")
 
@@ -106,7 +106,7 @@ with col_right:
     """, unsafe_allow_html=True)
     st.plotly_chart(
         build_map(zone_summary, f"Zone risk · {latest_date}"),
-        use_container_width=True
+        width='stretch'
     )
 
 # --- CLOSE CONTENT DIV ---
@@ -183,7 +183,7 @@ if st.button("Run 7-Day Forecast", key="run_forecast"):
             font=dict(color="#1A2332", size=12)
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         st.markdown("""
         <p style="font-size:0.72rem;font-weight:600;color:#64748B;text-transform:uppercase;
@@ -193,7 +193,7 @@ if st.button("Run 7-Day Forecast", key="run_forecast"):
             "day": "Day", "date": "Date",
             "p05": "Low (p05)", "p50": "Typical (p50)", "p95": "High (p95)"
         })
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        st.dataframe(display_df, width='stretch', hide_index=True)
 
         st.caption(
             "Forecast uses quantile XGBoost (p05/p50/p95). "

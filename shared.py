@@ -43,8 +43,12 @@ def load_data():
 
 @st.cache_resource
 def load_model():
+    from xgboost import Booster
+    booster = Booster()
+    booster.load_model("model.json")
     model = XGBRegressor()
-    model.load_model("model.json")
+    model._Booster = booster
+    model._estimator_type = "regressor"
     return model
 
 
@@ -324,10 +328,14 @@ def get_live_weather_predictions():
 # ------------------------------------------------------------
 @st.cache_resource
 def load_forecaster_models():
+    from xgboost import Booster
     models = {}
     for name in ["p05", "p50", "p95"]:
+        booster = Booster()
+        booster.load_model(f"forecaster_{name}.json")
         m = XGBRegressor()
-        m.load_model(f"forecaster_{name}.json")
+        m._Booster = booster
+        m._estimator_type = "regressor"
         models[name] = m
     return models
 
