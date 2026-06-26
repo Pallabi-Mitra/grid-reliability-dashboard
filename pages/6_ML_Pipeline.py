@@ -35,7 +35,15 @@ categorical_cols = ["season", "fuel_category", "broad_asset_category", "operatin
 
 @st.cache_data
 def load_assets():
-    return pd.read_csv("assets.csv")
+    assets = pd.read_csv("assets.csv")
+    daily = pd.read_csv("daily_records.csv")
+    latest_date = daily["date"].max()
+    latest_daily = daily[daily["date"] == latest_date][
+        ["asset_id", "dependable_capacity_mw", "days_since_last_event",
+         "recent_avg_impact", "prev_impact_ratio", "recent_max_impact",
+         "prior_high_impact_flag", "high_wind_flag", "impacted_mw"]
+    ].copy()
+    return assets.merge(latest_daily, on="asset_id", how="left")
 
 @st.cache_resource
 def load_all_models():
