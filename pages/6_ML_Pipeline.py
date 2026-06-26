@@ -132,6 +132,21 @@ def feature_engineer(state: PipelineState) -> PipelineState:
     merged["temp_range"] = merged["temp_max"] - merged["temp_min"]
     merged["cold_day_flag"] = (merged["temp_avg"] < 20).astype(int)
     merged["hot_day_flag"] = (merged["temp_avg"] > 85).astype(int)
+    # Scale impacted_mw based on temperature stress
+# This is the dominant model feature so we must vary it with weather
+    temp_stress = np.where(
+        merged["temp_avg"] > 85,
+        (merged["temp_avg"] - 85) / 30.0,
+        np.where(
+            merged["temp_avg"] < 20,
+            (20 - merged["temp_avg"]) / 30.0,
+            0.0
+        )
+    )
+    temp_stress = np.clip(temp_stress, 0, 1)
+    merged["impacted_mw"] = merged["impacted_mw"] * (1 + temp_stress)
+    merged["recent_avg_impact"] = np.clip(merged["recent_avg_impact"] + temp_stress * 0.3, 0, 1)
+    merged["prev_impact_ratio"] = np.clip(merged["prev_impact_ratio"] + temp_stress * 0.2, 0, 1)
     if "season" not in merged.columns and "month" in merged.columns:
         def get_season(mo):
             if mo in [12, 1, 2]: return "Winter"
@@ -205,7 +220,7 @@ pipeline = build_pipeline()
 st.markdown("""
 <div style="background:linear-gradient(135deg,#0D1B2A,#1A3A5C);padding:2rem 2rem 1.5rem;border-radius:12px;margin-bottom:1.5rem;">
     <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Grid Reliability Intelligence Platform</div>
-    <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Machine Learning Pipeline</div>
+    <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Machine Learning Model</div>
     <div style="font-size:0.9rem;color:#90A4AE;">Upload zone weather data · Multi-model comparison · 30/90/365-day forecast</div>
 </div>
 """, unsafe_allow_html=True)

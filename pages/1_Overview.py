@@ -28,7 +28,7 @@ st.markdown(f"""
 <div class="page-header">
     <div>
         <p class="page-header-title">Grid Reliability Intelligence Platform</p>
-        <p class="page-header-subtitle">New York load zones · synthetic demo data</p>
+        <p class="page-header-subtitle">New York load zones</p>
     </div>
     <div class="live-indicator">
         <div class="live-dot"></div>
