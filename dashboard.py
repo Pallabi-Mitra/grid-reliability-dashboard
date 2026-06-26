@@ -7,9 +7,9 @@
 
 import streamlit as st
 
-st.set_page_config(page_title="Grid Reliability Dashboard", layout="wide", page_icon="💡")
+st.set_page_config(page_title="Grid Reliability Intelligence Platform", layout="wide", page_icon="💡")
 
-overview = st.Page("pages/1_Overview.py", title="Overview", icon=":material/dashboard:")
+overview = st.Page("pages/1_Overview.py", title="Dashboard", icon=":material/dashboard:")
 simulator = st.Page("pages/2_Scenario_Simulator.py", title="Scenario Simulator", icon=":material/thermostat:")
 risk_drivers = st.Page("pages/3_Risk_Drivers.py", title="Risk Drivers", icon=":material/troubleshoot:")
 analytics = st.Page("pages/4_Performance_Analytics.py", title="Performance Analytics", icon=":material/bar_chart:")
@@ -27,7 +27,7 @@ st.sidebar.markdown("""
 """, unsafe_allow_html=True)
 
 # --- SIDEBAR: CUSTOM NAV LINKS, in chosen order ---
-st.sidebar.page_link(overview, label="Overview")
+st.sidebar.page_link(overview, label="Dashboard")
 st.sidebar.page_link(simulator, label="Scenario Simulator")
 st.sidebar.page_link(risk_drivers, label="Risk Drivers")
 st.sidebar.page_link(analytics, label="Performance Analytics")
