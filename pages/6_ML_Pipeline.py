@@ -226,7 +226,7 @@ pipeline = build_pipeline()
 # ── Page Header ──
 st.markdown("""
 <div style="background:linear-gradient(135deg,#0D1B2A,#1A3A5C);padding:2rem 2rem 1.5rem;border-radius:12px;margin-bottom:1.5rem;">
-    <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Generator Risk Intelligence</div>
+    <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Grid Reliability Intelligence Platform</div>
     <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Predictive Analytics</div>
     <div style="font-size:0.9rem;color:#90A4AE;">Upload zone weather data · Multi-model comparison · 30/90/365-day forecast</div>
 </div>

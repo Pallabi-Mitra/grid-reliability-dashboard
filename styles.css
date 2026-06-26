@@ -21,6 +21,15 @@ header[data-testid="stHeader"] {
 }
 
 /* --- SIDEBAR --- */
+.sidebar-platform-name {
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: #64B5F6;
+    text-transform: uppercase;
+    opacity: 0.8;
+    margin-bottom: 0.2rem;
+}
 [data-testid="stSidebar"] {
     background-color: #1A2332;
     border-right: none;
