@@ -315,6 +315,8 @@ if st.button("Run Analysis", type="primary"):
     st.session_state["ml_result"] = result
     st.session_state["ml_horizon_label"] = horizon_label
     st.session_state["ml_horizon_days"] = horizon_days
+    st.session_state["ml_horizon_days"] = horizon_days
+    st.rerun()
 
 if "ml_result" not in st.session_state:
     st.stop()
