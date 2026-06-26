@@ -23,7 +23,6 @@ nav = st.navigation(
 st.sidebar.markdown("""
 <div class="sidebar-header">
     <div class="sidebar-platform-name">Grid Reliability Intelligence Platform</div>
-    <div class="sidebar-title">Grid Reliability</div>
 </div>
 """, unsafe_allow_html=True)
 
