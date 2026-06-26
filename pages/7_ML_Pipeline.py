@@ -128,7 +128,7 @@ def feature_engineer(state: PipelineState) -> PipelineState:
         lambda x: x.fillna(x.mean())
     )
 
-    merged = assets.merge(weather_df, on="operating_region", how="left")
+    merged = assets.merge(weather_df, on="operating_region", how="left").reset_index(drop=True)
 
     if "date" in merged.columns:
         merged["date"] = pd.to_datetime(merged["date"], errors="coerce")
@@ -149,10 +149,13 @@ def feature_engineer(state: PipelineState) -> PipelineState:
         merged["season"] = merged["month"].apply(get_season)
 
     encoded = pd.get_dummies(merged, columns=categorical_cols)
-    for col in model_features:
-        if col not in encoded.columns:
-            encoded[col] = 0
-
+    
+    encoded = encoded.reset_index(drop=True)
+    for col in ["asset_id", "operating_region", "fuel_category",
+            "dependable_capacity_mw", "broad_asset_category",
+            "season", "temp_avg", "temp_min", "temp_max"]:
+        if col in merged.columns:
+            encoded[col] = merged[col].reset_index(drop=True).values
     # Preserve display columns on encoded df
     for col in ["asset_id", "operating_region", "fuel_category",
             "dependable_capacity_mw", "broad_asset_category",
@@ -196,12 +199,11 @@ def model_runner(state: PipelineState) -> PipelineState:
 
     eng_df = state["engineered_df"].copy()
     if best in results and results[best]["preds"] is not None:
-        eng_df["predicted_impact_ratio"] = results[best]["preds"]
+        preds = results[best]["preds"]
+        eng_df = eng_df.reset_index(drop=True)
+        eng_df["predicted_impact_ratio"] = pd.Series(preds).values
         eng_df["predicted_impacted_mw"] = (
-            eng_df["predicted_impact_ratio"] * eng_df["dependable_capacity_mw"]
-        )
-        eng_df["risk_level"] = eng_df["predicted_impact_ratio"].apply(
-            lambda x: "🔴 HIGH" if x > 0.65 else ("🟡 MODERATE" if x > 0.45 else "🟢 LOW")
+        eng_df["predicted_impact_ratio"] * pd.to_numeric(eng_df["dependable_capacity_mw"], errors="coerce")
         )
 
     return {**state, "model_results": results, "best_model_name": best, "predictions_df": eng_df}
