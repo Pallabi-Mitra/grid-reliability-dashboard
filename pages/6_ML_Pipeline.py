@@ -341,6 +341,7 @@ if "ml_result" not in st.session_state:
     st.stop()
 
 result = st.session_state["ml_result"]
+eng_df_for_forecast = result.get("engineered_df")
 horizon_label = st.session_state.get("ml_horizon_label", "30 days")
 horizon_days = st.session_state.get("ml_horizon_days", 30)
 base_temp = st.session_state.get("ml_base_temp", 70.0)
@@ -489,7 +490,7 @@ st.caption("Forecast driven by uploaded weather data · confidence band widens o
 try:
     forecast_rows = []
     base_date = datetime.now()
-    days_to_run = min(horizon_days, 90)
+    days_to_run = horizon_days
 
     for day_offset in range(1, days_to_run + 1):
         forecast_date = (base_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
@@ -512,10 +513,22 @@ try:
                 day_df["days_since_last_event"], errors="coerce"
             ).fillna(0) + day_offset
 
+        # Re-encode from engineered_df which still has categorical columns
         day_enc = pd.get_dummies(
-            day_df,
-            columns=[c for c in categorical_cols if c in day_df.columns]
+            eng_df_for_forecast.copy() if eng_df_for_forecast is not None else day_df
+            columns=categorical_cols
         ).reset_index(drop=True)
+        # Apply simulated temperature to encoded df
+        day_enc["temp_avg"] = simulated_temp
+        day_enc["temp_min"] = simulated_temp - 8
+        day_enc["temp_max"] = simulated_temp + 8
+        day_enc["temp_range"] = 16.0
+        day_enc["cold_day_flag"] = int(simulated_temp < 20)
+        day_enc["hot_day_flag"] = int(simulated_temp > 85)
+        if "days_since_last_event" in day_enc.columns:
+            day_enc["days_since_last_event"] = pd.to_numeric(
+                day_enc["days_since_last_event"], errors="coerce"
+            ).fillna(0) + day_offset
         for col in model_features:
             if col not in day_enc.columns:
                 day_enc[col] = 0
