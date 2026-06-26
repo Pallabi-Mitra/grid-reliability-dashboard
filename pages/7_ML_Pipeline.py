@@ -155,8 +155,9 @@ def feature_engineer(state: PipelineState) -> PipelineState:
 
     # Preserve display columns on encoded df
     for col in ["asset_id", "operating_region", "fuel_category",
-                "dependable_capacity_mw", "broad_asset_category"]:
-        if col in merged.columns and col not in encoded.columns:
+            "dependable_capacity_mw", "broad_asset_category",
+            "season", "fuel_category", "temp_avg", "temp_min", "temp_max"]:
+        if col in merged.columns:
             encoded[col] = merged[col].values
 
     return {**state, "engineered_df": encoded, "X": encoded[model_features]}
@@ -463,7 +464,10 @@ if uploaded_file:
                     day_df = preds_df.copy()
                     if "days_since_last_event" in day_df.columns:
                         day_df["days_since_last_event"] += day_offset
-                    day_enc = pd.get_dummies(day_df, columns=categorical_cols)
+                    day_enc = day_df.copy()
+                    for col in model_features:
+                        if col not in day_enc.columns:
+                            day_enc[col] = 0
                     for col in model_features:
                         if col not in day_enc.columns:
                             day_enc[col] = 0
