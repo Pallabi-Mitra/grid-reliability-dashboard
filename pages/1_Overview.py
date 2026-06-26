@@ -20,10 +20,7 @@ load_css("styles.css")
 assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
 
 # --- SIDEBAR ---
-st.sidebar.markdown(
-    "<div class='sidebar-footer'>Synthetic data · no real NYISO operational data used</div>",
-    unsafe_allow_html=True
-)
+
 
 # --- PAGE HEADER ---
 now = datetime.now().strftime("%b %d, %Y · %H:%M EST")

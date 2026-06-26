@@ -17,7 +17,7 @@ import os
 import sys
 import asyncio
 from shared import (
-    load_css, get_latest_predictions, zone_names, categorical_cols
+    load_css, get_live_weather_predictions, zone_names, categorical_cols
 )
 from agents_utils import (
     call_with_retry,
@@ -29,7 +29,7 @@ from langchain_core.tools import tool as lc_tool
 
 load_css("styles.css")
 
-assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_latest_predictions()
+assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
 
 # --- MCP TOOLS (imported directly, no subprocess/stdio needed on Cloud) ---
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
