@@ -24,8 +24,13 @@ st.sidebar.markdown(
 )
 
 # --- PAGE HEADER ---
-st.title("🔬 Risk Drivers")
-st.caption("Select a generator to understand why the model predicted its risk level")
+st.markdown("""
+<div style="background:linear-gradient(135deg,#0D1B2A,#1A3A5C);padding:2rem 2rem 1.5rem;border-radius:12px;margin-bottom:1.5rem;">
+    <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Grid Reliability Intelligence Platform</div>
+    <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Risk Drivers</div>
+    <div style="font-size:0.9rem;color:#90A4AE;">Feature importance breakdown for individual generators</div>
+</div>
+""", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- ZONE SELECTOR ---

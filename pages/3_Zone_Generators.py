@@ -25,8 +25,13 @@ st.sidebar.markdown(
 )
 
 # --- PAGE HEADER ---
-st.title("🔍 Zone Generators")
-st.caption("Select a zone to see every generator ranked by predicted risk")
+st.markdown("""
+<div style="background:linear-gradient(135deg,#0D1B2A,#1A3A5C);padding:2rem 2rem 1.5rem;border-radius:12px;margin-bottom:1.5rem;">
+    <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Grid Reliability Intelligence Platform</div>
+    <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Zone Generators</div>
+    <div style="font-size:0.9rem;color:#90A4AE;">Per-generator risk rankings driven by live weather conditions</div>
+</div>
+""", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- ZONE SELECTOR ---

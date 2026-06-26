@@ -21,8 +21,13 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-st.title("Performance Analytics")
-st.caption("What's driving risk, and where to focus")
+st.markdown("""
+<div style="background:linear-gradient(135deg,#0D1B2A,#1A3A5C);padding:2rem 2rem 1.5rem;border-radius:12px;margin-bottom:1.5rem;">
+    <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Grid Reliability Intelligence Platform</div>
+    <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Performance Analytics</div>
+    <div style="font-size:0.9rem;color:#90A4AE;">What's driving risk, and where to focus</div>
+</div>
+""", unsafe_allow_html=True)
 st.markdown("---")
 
 latest_encoded = pd.get_dummies(latest_df, columns=categorical_cols)
