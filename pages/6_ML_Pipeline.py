@@ -260,7 +260,6 @@ if uploaded_file is not None:
         df_upload = pd.read_csv(uploaded_file)
         st.session_state["ml_upload_df"] = df_upload
         st.session_state["ml_upload_name"] = uploaded_file.name
-        st.session_state.pop("ml_result", None)
     except Exception as e:
         st.error(f"Could not read file: {e}")
         st.stop()
@@ -526,19 +525,27 @@ else:
         st.warning(f"Forecast skipped: {e}")
 
     st.markdown("#### Download Results")
-    out_buf = io.StringIO()
-    preds_df[display_cols].to_csv(out_buf, index=False)
-    st.download_button(
-        "Download Predictions CSV",
-        out_buf.getvalue(),
-        file_name=f"predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-        mime="text/csv"
-    )
-    comp_buf = io.StringIO()
-    comp_df.to_csv(comp_buf, index=False)
-    st.download_button(
-        "Download Model Comparison CSV",
-        comp_buf.getvalue(),
-        file_name=f"model_comparison_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-        mime="text/csv"
-    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        out_buf = io.StringIO()
+        preds_df[display_cols].to_csv(out_buf, index=False)
+        st.download_button(
+            "⬇ Download Predictions CSV",
+            out_buf.getvalue(),
+            file_name=f"predictions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            key="dl_predictions"
+        )
+
+    with col2:
+        comp_buf = io.StringIO()
+        comp_df.to_csv(comp_buf, index=False)
+        st.download_button(
+            "⬇ Download Model Comparison CSV",
+            comp_buf.getvalue(),
+            file_name=f"model_comparison_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            key="dl_comparison"
+        )
