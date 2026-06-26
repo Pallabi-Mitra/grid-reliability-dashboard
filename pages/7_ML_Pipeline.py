@@ -149,22 +149,24 @@ def feature_engineer(state: PipelineState) -> PipelineState:
         merged["season"] = merged["month"].apply(get_season)
 
     encoded = pd.get_dummies(merged, columns=categorical_cols)
-    
     encoded = encoded.reset_index(drop=True)
+
+    # Add missing model feature columns
+    for col in model_features:
+        if col not in encoded.columns:
+            encoded[col] = 0
+
+    # Extract X BEFORE adding display columns back
+    X = encoded[model_features].copy()
+
+    # Now add display columns back safely
     for col in ["asset_id", "operating_region", "fuel_category",
-            "dependable_capacity_mw", "broad_asset_category",
-            "season", "temp_avg", "temp_min", "temp_max"]:
+                "dependable_capacity_mw", "broad_asset_category",
+                "season", "temp_avg", "temp_min", "temp_max"]:
         if col in merged.columns:
             encoded[col] = merged[col].reset_index(drop=True).values
-    # Preserve display columns on encoded df
-    for col in ["asset_id", "operating_region", "fuel_category",
-            "dependable_capacity_mw", "broad_asset_category",
-            "season", "fuel_category", "temp_avg", "temp_min", "temp_max"]:
-        if col in merged.columns:
-            encoded[col] = merged[col].values
 
-    return {**state, "engineered_df": encoded, "X": encoded[model_features]}
-
+    return {**state, "engineered_df": encoded, "X": X}
 def model_runner(state: PipelineState) -> PipelineState:
     if not state["validation_passed"]:
         return state
