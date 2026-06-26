@@ -515,7 +515,7 @@ try:
 
         # Re-encode from engineered_df which still has categorical columns
         day_enc = pd.get_dummies(
-            eng_df_for_forecast.copy() if eng_df_for_forecast is not None else day_df
+            eng_df_for_forecast.copy() if eng_df_for_forecast is not None else day_df,
             columns=categorical_cols
         ).reset_index(drop=True)
         # Apply simulated temperature to encoded df
