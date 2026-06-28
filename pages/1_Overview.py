@@ -23,7 +23,9 @@ assets, daily, df, model, model_features, latest_date, latest_df, zone_summary =
 
 
 # --- PAGE HEADER ---
-now = datetime.now().strftime("%b %d, %Y · %H:%M EST")
+from datetime import timezone, timedelta
+eastern = timezone(timedelta(hours=-4))  # EDT (summer)
+now = datetime.now(eastern).strftime("%b %d, %Y · %H:%M EDT")
 st.markdown(f"""
 <div class="page-header">
     <div>
