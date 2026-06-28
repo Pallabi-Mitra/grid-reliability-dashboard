@@ -6,13 +6,19 @@
 #   YELLOW -> Monitor + Diagnosis, stop
 #   RED    -> Monitor + Diagnosis + Reporter (full escalation)
 #
-# Monitor's FLAG output can override routing, escalating a
-# YELLOW or GREEN zone if the LLM detects something unusual.
-# All three agents have retry logic and output guardrails.
+# Pre-pipeline agents (pure Python, no LLM):
+#   1. Anomaly Detection Agent - flags statistical anomalies
+#   2. Confidence Scorer - computes prediction reliability score
+#
+# LLM agents with guardrails:
+#   Monitor - tool-calling, validates SUMMARY+FLAG+zone names
+#   Diagnosis - RAG + feature importance, validates length+zones
+#   Reporter - operator brief, validates action word+zone names
 # ============================================================
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 import sys
 import asyncio
@@ -23,7 +29,9 @@ from agents_utils import (
     call_with_retry,
     validate_monitor_output,
     validate_diagnosis_output,
-    validate_reporter_output
+    validate_reporter_output,
+    validate_zone_names,
+    run_anomaly_detection
 )
 from langchain_core.tools import tool as lc_tool
 
@@ -31,7 +39,7 @@ load_css("styles.css")
 
 assets, daily, df, model, model_features, latest_date, latest_df, zone_summary = get_live_weather_predictions()
 
-# --- MCP TOOLS (imported directly, no subprocess/stdio needed on Cloud) ---
+# --- MCP TOOLS ---
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mcp_server import get_zone_risk, get_generator_predictions, list_all_zones
 
@@ -61,7 +69,7 @@ st.markdown("""
 <div style="background:linear-gradient(135deg,#0D1B2A,#1A3A5C);padding:2rem 2rem 1.5rem;border-radius:12px;margin-bottom:1.5rem;">
     <div style="font-size:0.75rem;font-weight:600;letter-spacing:0.15em;color:#64B5F6;text-transform:uppercase;margin-bottom:0.4rem;">Grid Reliability Intelligence Platform</div>
     <div style="font-size:1.8rem;font-weight:700;color:#FFFFFF;margin-bottom:0.4rem;">Agentic AI Operations</div>
-    <div style="font-size:0.9rem;color:#90A4AE;">Tool-calling Monitor · SHAP+RAG Diagnosis · Conditional routing · Human approval</div>
+    <div style="font-size:0.9rem;color:#90A4AE;">Anomaly Detection · Confidence Scoring · Tool-calling Monitor · RAG Diagnosis · Human Approval</div>
 </div>
 """, unsafe_allow_html=True)
 st.markdown("---")
@@ -104,17 +112,65 @@ else:
             diagnosis: str
             brief: str
             needs_investigation: bool
+            anomaly_context: str
+            confidence_score: float
+            confidence_level: str
+
+        # ── Pre-pipeline Agent 1: Anomaly Detection ──
+        anomaly_result = run_anomaly_detection(selected_zone, zone_summary, latest_df)
+        anomaly_context = anomaly_result["context"]
+
+        # ── Pre-pipeline Agent 2: Confidence Scoring ──
+        zone_row = zone_summary[zone_summary["operating_region"] == selected_zone].iloc[0]
+        risk_pct = float(zone_row["risk_pct"])
+        all_risk = zone_summary["risk_pct"].values
+        mean_risk = float(np.mean(all_risk))
+        std_risk = float(np.std(all_risk))
+        z_score = abs((risk_pct - mean_risk) / std_risk) if std_risk > 0 else 0
+        confidence_score = round(
+            max(0.0, 100.0 - (z_score * 15.0) - (len(anomaly_result["anomalies"]) * 15.0)), 1
+        )
+        confidence_level = (
+            "HIGH" if confidence_score >= 80
+            else "MEDIUM" if confidence_score >= 60
+            else "LOW"
+        )
+
+        # ── Show pre-pipeline results ──
+        st.markdown("### Pre-Pipeline Analysis")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Anomalies Detected", len(anomaly_result["anomalies"]))
+        with c2:
+            st.metric("Prediction Confidence", f"{confidence_score}%")
+        with c3:
+            color = "🟢" if confidence_level == "HIGH" else ("🟡" if confidence_level == "MEDIUM" else "🔴")
+            st.metric("Confidence Level", f"{color} {confidence_level}")
+
+        if anomaly_result["anomalies"]:
+            for flag in anomaly_result["anomalies"]:
+                st.warning(f"🔍 {flag}")
+        else:
+            st.success(f"No statistical anomalies detected for Zone {selected_zone}. Predictions are reliable.")
+
+        st.markdown("---")
 
         monitor_react_agent = create_react_agent(llm, mcp_tools)
 
         async def monitor_agent(state):
             zone = state["zone"]
+            context = state.get("anomaly_context", "")
+            conf_score = state.get("confidence_score", 100.0)
+            conf_level = state.get("confidence_level", "HIGH")
             try:
                 result = await monitor_react_agent.ainvoke({
                     "messages": [(
                         "user",
                         f"You are a Grid Monitoring Agent. Use the available tools "
                         f"to look up the risk level and top generators for Zone {zone}.\n\n"
+                        f"Context from anomaly detection system:\n{context}\n\n"
+                        f"Prediction confidence for this zone: {conf_score}% ({conf_level}). "
+                        f"If confidence is LOW or MEDIUM, flag this in your summary.\n\n"
                         f"Then write two things, clearly labeled:\n"
                         f"SUMMARY: a 2-3 sentence summary of the situation for an operations team.\n"
                         f"FLAG: write YES if anything looks inconsistent, unusual, or "
@@ -137,6 +193,10 @@ else:
                     f"FLAG: YES"
                 )
 
+            is_valid_zones, zone_reason = validate_zone_names(final_text)
+            if not is_valid_zones:
+                final_text += f"\n\n[GUARDRAIL WARNING: {zone_reason}]"
+
             needs_investigation = "FLAG:YES" in final_text.upper().replace(" ", "")
 
             return {
@@ -146,6 +206,8 @@ else:
 
         def diagnosis_agent(state):
             zone = state["zone"]
+            context = state.get("anomaly_context", "")
+            conf_score = state.get("confidence_score", 100.0)
             last_msg = state["messages"][-1]
             monitor_summary = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
 
@@ -172,6 +234,8 @@ else:
                 response = call_with_retry(lambda: llm.invoke(
                     f"You are a Diagnosis Agent.\n"
                     f"Monitor reported: {monitor_summary}\n"
+                    f"Anomaly detection context:\n{context}\n"
+                    f"Prediction confidence: {conf_score}% — factor this into your certainty level.\n"
                     f"Highest-risk generator: {top_asset['asset_id']} "
                     f"({top_asset['fuel_category']}, {top_asset['dependable_capacity_mw']:.1f} MW).\n"
                     f"Top risk drivers: {feature_str}.\n\n"
@@ -195,10 +259,17 @@ else:
                     f"Raw risk drivers: {feature_str}."
                 )
 
+            is_valid_zones, zone_reason = validate_zone_names(diagnosis_text)
+            if not is_valid_zones:
+                diagnosis_text += f"\n\n[GUARDRAIL WARNING: {zone_reason}]"
+
             return {"messages": [diagnosis_text], "diagnosis": diagnosis_text}
 
         def reporter_agent(state):
             zone = state["zone"]
+            context = state.get("anomaly_context", "")
+            conf_score = state.get("confidence_score", 100.0)
+            conf_level = state.get("confidence_level", "HIGH")
             messages = state["messages"]
             last_two = messages[-2] if len(messages) >= 2 else ""
             monitor_summary = last_two.content if hasattr(last_two, "content") else str(last_two)
@@ -207,7 +278,11 @@ else:
             try:
                 response = call_with_retry(lambda: llm.invoke(
                     f"You are a Reporting Agent. Draft a concise operator brief for Zone {zone}.\n"
-                    f"Monitor: {monitor_summary}\nDiagnosis: {diagnosis}\n\n"
+                    f"Monitor: {monitor_summary}\n"
+                    f"Diagnosis: {diagnosis}\n"
+                    f"Anomaly detection context:\n{context}\n"
+                    f"Prediction confidence: {conf_score}% ({conf_level}). "
+                    f"If confidence is not HIGH, note this caveat in the brief.\n\n"
                     f"State the risk level and MW at risk, explain the main cause, and commit to ONE "
                     f"specific, actionable next step. Professional tone, 3-4 sentences."
                 ))
@@ -224,6 +299,10 @@ else:
                     f"\n\n[Note: {reason} "
                     f"Please verify this brief contains a concrete next step before approving.]"
                 )
+
+            is_valid_zones, zone_reason = validate_zone_names(brief_text)
+            if not is_valid_zones:
+                brief_text += f"\n\n[GUARDRAIL WARNING: {zone_reason}]"
 
             return {"messages": [brief_text], "brief": brief_text}
 
@@ -261,15 +340,23 @@ else:
 
         pipeline = graph.compile()
 
-        zone_risk_level = zone_summary[zone_summary["operating_region"] == selected_zone]["risk_level"].values[0]
+        zone_risk_level = zone_summary[
+            zone_summary["operating_region"] == selected_zone
+        ]["risk_level"].values[0]
 
         async def run_pipeline():
             return await pipeline.ainvoke({
-                "messages": [], "zone": selected_zone,
+                "messages": [],
+                "zone": selected_zone,
                 "risk_level": zone_risk_level,
-                "risk_pct": 0.0, "top_generators": "",
-                "diagnosis": "", "brief": "",
-                "needs_investigation": False
+                "risk_pct": risk_pct,
+                "top_generators": "",
+                "diagnosis": "",
+                "brief": "",
+                "needs_investigation": False,
+                "anomaly_context": anomaly_context,
+                "confidence_score": confidence_score,
+                "confidence_level": confidence_level
             })
 
         with st.spinner("Running agent pipeline..."):
@@ -323,4 +410,7 @@ else:
 
             approved = st.checkbox("Approve and publish this brief")
             if approved:
-                st.success(f"Brief approved for Zone {selected_zone}. Ready to distribute to operations team.")
+                st.success(
+                    f"Brief approved for Zone {selected_zone}. "
+                    f"Ready to distribute to operations team."
+                )
