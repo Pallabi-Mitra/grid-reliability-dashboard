@@ -7,6 +7,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8501
+# Install supervisor to run two processes
+RUN pip install supervisor
 
-CMD ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Create supervisor config
+RUN mkdir -p /etc/supervisor/conf.d
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+EXPOSE 8501 8000
+
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

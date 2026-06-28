@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grid-reliability
+  labels:
+    app: grid-reliability
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: grid-reliability
+  template:
+    metadata:
+      labels:
+        app: grid-reliability
+    spec:
+      containers:
+        - name: grid-reliability
+          image: grid-reliability:latest
+          ports:
+            - containerPort: 8501
+          env:
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: grid-reliability-secrets
+                  key: groq-api-key
+            - name: EIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: grid-reliability-secrets
+                  key: eia-api-key
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
